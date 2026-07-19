@@ -2,10 +2,9 @@
   "name": "live-chat-2026",
   "version": "1.0.0",
   "description": "",
-  "main": "server.js",
+  "main": "index.js",
   "scripts": {
-    "start": "node server.js",
-    "dev": "nodemon server.js",
+    "start": "nodemon server.js",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "keywords": [],
@@ -13,7 +12,6 @@
   "license": "ISC",
   "type": "commonjs",
   "dependencies": {
-    "@supabase/server": "^1.4.0",
     "@supabase/supabase-js": "^2.110.7",
     "body-parser": "^2.3.0",
     "ejs": "^6.0.1",
