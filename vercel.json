@@ -6,15 +6,10 @@
       "use": "@vercel/node"
     }
   ],
-  "functions": {
-    "server.js": {
-      "runtime": "nodejs20.x"
-    }
-  },
-  "rewrites": [
+  "routes": [
     {
-      "source": "/(.*)",
-      "destination": "/server.js"
+      "src": "/(.*)",
+      "dest": "server.js"
     }
   ]
 }

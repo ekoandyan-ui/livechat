@@ -48,83 +48,47 @@
       crossorigin="anonymous"
     ></script>
 
-    <% if (socketEnabled) { %>
-      <script src="/socket.io/socket.io.js"></script>
-      <script>
-        const socket = io();
-        const chatContainer = document.getElementById("chatContainer");
-        const loginContainer = document.getElementById("loginContainer");
-        const loginButton = document.getElementById("loginButton");
-        const message = document.getElementById("message");
-        const sendMessage = document.getElementById("sendMessage");
-        const messageList = document.getElementById("messageList");
+    <script src="/socket.io/socket.io.js"></script>
+    <script>
+      const socket = io();
+      const chatContainer = document.getElementById("chatContainer");
+      const loginContainer = document.getElementById("loginContainer");
+      const message = document.getElementById("message");
+      const sendMessage = document.getElementById("sendMessage");
+      const messageList = document.getElementById("messageList");
 
-        chatContainer.style.display = "none";
+      chatContainer.style.display = "none";
 
-        loginButton.addEventListener("click", (e) => {
-          e.preventDefault();
-          chatContainer.style.display = "block";
-          loginContainer.style.display = "none";
-        });
+      loginButton.addEventListener("click", (e) => {
+        e.preventDefault();
+        chatContainer.style.display = "block";
+        loginContainer.style.display = "none";
+      });
 
-        sendMessage.addEventListener("click", (e) => {
-          e.preventDefault();
-          if (message.value) {
-            const data = {
-              id: socket.id,
-              message: message.value,
-            };
-            socket.emit("message", data);
+      sendMessage.addEventListener("click", (e) => {
+        e.preventDefault();
+        if (message.value) {
+          const data = {
+            id: socket.id,
+            message: message.value,
+          };
+          socket.emit("message", data);
 
-            const chatList = document.createElement("p");
-            chatList.style.fontSize = "24px";
-            chatList.textContent = message.value;
-            messageList.appendChild(chatList);
-            message.value = "";
-          }
-        });
+          let chatList = document.createElement("p");
+          chatList.style.fontSize = "24px";
+          chatList.textContent = message.value;
+          messageList.appendChild(chatList);
+          message.value = "";
+        }
+      });
 
-        socket.on("message", (id, message) => {
-          const broadcast = document.createElement("p");
-          broadcast.style.textAlign = "right";
-          broadcast.style.fontSize = "24px";
-          broadcast.textContent = `${message} *(${id})`;
-          messageList.appendChild(broadcast);
-        });
-      </script>
-    <% } else { %>
-      <div class="container mt-3">
-        <div class="alert alert-warning">
-          Realtime chat is disabled on Vercel deployments. Messages are local to this browser.
-        </div>
-      </div>
-      <script>
-        const chatContainer = document.getElementById("chatContainer");
-        const loginContainer = document.getElementById("loginContainer");
-        const loginButton = document.getElementById("loginButton");
-        const message = document.getElementById("message");
-        const sendMessage = document.getElementById("sendMessage");
-        const messageList = document.getElementById("messageList");
-
-        chatContainer.style.display = "none";
-
-        loginButton.addEventListener("click", (e) => {
-          e.preventDefault();
-          chatContainer.style.display = "block";
-          loginContainer.style.display = "none";
-        });
-
-        sendMessage.addEventListener("click", (e) => {
-          e.preventDefault();
-          if (message.value) {
-            const chatList = document.createElement("p");
-            chatList.style.fontSize = "24px";
-            chatList.textContent = message.value;
-            messageList.appendChild(chatList);
-            message.value = "";
-          }
-        });
-      </script>
-    <% } %>
+      socket.on("message", (id, message) => {
+        let broadcast = document.createElement("p");
+        broadcast.style.textAlign = "right";
+        broadcast.style.fontSize = "24px";
+        broadcast.textContent = `${message} *(${id})`;
+        messageList.appendChild(broadcast);
+      });
+    </script>
   </body>
 </html>

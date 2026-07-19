@@ -19,11 +19,6 @@
             </tr>
           </thead>
           <tbody>
-            <% if (error) { %>
-              <tr>
-                <td colspan="3" class="text-danger"><%= error %></td>
-              </tr>
-            <% } %>
             <% for (let user of users) { %>
               <tr>
                 <th scope="row"><%= user.id %></th>
