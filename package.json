@@ -1,11 +1,11 @@
 {
   "name": "live-chat-2026",
   "version": "1.0.0",
-  "description": "",
-  "main": "index.js",
+  "description": "Live Chat Aplikasi Dinkes",
+  "main": "server.js",
   "scripts": {
-    "start": "nodemon server.js",
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "start": "node server.js",
+    "dev": "nodemon server.js"
   },
   "keywords": [],
   "author": "",
@@ -16,7 +16,7 @@
     "body-parser": "^2.3.0",
     "ejs": "^6.0.1",
     "express": "^5.2.1",
-    "mysql": "^2.18.1",
+    "pg": "^8.22.0",
     "socket.io": "^4.8.3"
   },
   "devDependencies": {
