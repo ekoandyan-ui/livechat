@@ -48,6 +48,27 @@ function requireAdmin(req, res, next) {
 }
 
 // =============================================
+// ROUTE: Test Database Connection
+// =============================================
+app.get("/test-db", async (req, res) => {
+  try {
+    const urlCheck = process.env.DATABASE_URL ? "ADA" : "TIDAK ADA";
+    const result = await db.query("SELECT NOW() as waktu");
+    const tables = await db.query(
+      "SELECT table_name FROM information_schema.tables WHERE table_schema = 'public'"
+    );
+    res.json({
+      status: "OK",
+      databaseUrl: urlCheck,
+      waktu: result.rows[0].waktu,
+      tabel: tables.rows.map((r) => r.table_name),
+    });
+  } catch (err) {
+    res.json({ status: "ERROR", pesan: err.message, databaseUrl: process.env.DATABASE_URL ? "ADA" : "TIDAK ADA" });
+  }
+});
+
+// =============================================
 // ROUTE: Halaman Utama - Daftar Pasien
 // =============================================
 app.get("/", async (req, res) => {
@@ -56,7 +77,8 @@ app.get("/", async (req, res) => {
     res.render("index", { users: result.rows, title: "DAFTAR PASIEN" });
   } catch (err) {
     console.error("Error ambil data user:", err.message);
-    res.status(500).send("Gagal mengambil data.");
+    console.error("Full error:", err);
+    res.status(500).send("Gagal mengambil data: " + err.message);
   }
 });
 
