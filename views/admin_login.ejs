@@ -1,0 +1,131 @@
+<!DOCTYPE html>
+<html lang="id">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Login Admin - Live Chat Dinkes</title>
+    <link
+      href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css"
+      rel="stylesheet"
+    />
+    <link
+      rel="stylesheet"
+      href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.1/font/bootstrap-icons.css"
+    />
+    <style>
+      body {
+        background: linear-gradient(135deg, #0f172a 0%, #1e1b4b 100%);
+        min-height: 100vh;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+        color: #f8fafc;
+      }
+      .glass-card {
+        background: rgba(30, 27, 75, 0.7);
+        backdrop-filter: blur(16px);
+        -webkit-backdrop-filter: blur(16px);
+        border: 1px solid rgba(139, 92, 246, 0.2);
+        border-radius: 1.25rem;
+        box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.5), 0 8px 10px -6px rgba(0, 0, 0, 0.3);
+      }
+      .form-control {
+        background: rgba(15, 23, 42, 0.6);
+        border: 1px solid rgba(255, 255, 255, 0.15);
+        color: #fff;
+        padding: 0.75rem 1rem;
+        border-radius: 0.75rem;
+      }
+      .form-control:focus {
+        background: rgba(15, 23, 42, 0.8);
+        border-color: #a855f7;
+        color: #fff;
+        box-shadow: 0 0 0 0.25rem rgba(168, 85, 247, 0.25);
+      }
+      .btn-admin-custom {
+        background: linear-gradient(135deg, #7c3aed 0%, #4f46e5 100%);
+        border: none;
+        padding: 0.8rem 1.5rem;
+        border-radius: 0.75rem;
+        font-weight: 600;
+        letter-spacing: 0.5px;
+        transition: all 0.3s ease;
+      }
+      .btn-admin-custom:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 10px 15px -3px rgba(124, 58, 237, 0.4);
+      }
+      .badge-admin {
+        background: rgba(168, 85, 247, 0.15);
+        color: #c084fc;
+        border: 1px solid rgba(168, 85, 247, 0.3);
+      }
+    </style>
+  </head>
+  <body>
+    <div class="container py-5">
+      <div class="row justify-content-center">
+        <div class="col-md-6 col-lg-5">
+          <div class="glass-card p-4 p-md-5">
+            <div class="text-center mb-4">
+              <span class="badge badge-admin px-3 py-2 rounded-pill mb-2 fs-6">
+                <i class="bi bi-shield-lock-fill me-1"></i> Area Terbatas
+              </span>
+              <h2 class="fw-bold text-white mt-2">Login Admin</h2>
+              <p class="text-secondary small">Masukkan Username dan Password untuk mengakses Dashboard.</p>
+            </div>
+
+            <% if (typeof error !== 'undefined' && error) { %>
+              <div class="alert alert-danger d-flex align-items-center rounded-3 mb-4" role="alert">
+                <i class="bi bi-exclamation-triangle-fill me-2 fs-5"></i>
+                <div><%= error %></div>
+              </div>
+            <% } %>
+
+            <form action="/admin/login" method="POST">
+              <div class="mb-3">
+                <label for="username" class="form-label fw-medium text-light">
+                  <i class="bi bi-person-badge-fill me-1 text-purple" style="color: #c084fc;"></i> Username
+                </label>
+                <input
+                  type="text"
+                  name="username"
+                  id="username"
+                  class="form-control"
+                  placeholder="Masukkan username"
+                  required
+                />
+              </div>
+
+              <div class="mb-4">
+                <label for="password" class="form-label fw-medium text-light">
+                  <i class="bi bi-key-fill me-1" style="color: #c084fc;"></i> Password
+                </label>
+                <input
+                  type="password"
+                  name="password"
+                  id="password"
+                  class="form-control"
+                  placeholder="Masukkan password"
+                  required
+                />
+              </div>
+
+              <button type="submit" class="btn btn-admin-custom w-100 text-white shadow">
+                <i class="bi bi-box-arrow-in-right me-2"></i> Masuk Administrator
+              </button>
+            </form>
+
+            <div class="text-center mt-4 border-top border-secondary pt-3">
+              <a href="/" class="text-secondary text-decoration-none small">
+                <i class="bi bi-arrow-left me-1"></i> Kembali ke Halaman Publik
+              </a>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+  </body>
+</html>

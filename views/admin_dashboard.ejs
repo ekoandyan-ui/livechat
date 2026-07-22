@@ -1,0 +1,142 @@
+<!DOCTYPE html>
+<html lang="id">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Dashboard Admin - Live Chat Dinkes</title>
+    <link
+      href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css"
+      rel="stylesheet"
+    />
+    <link
+      rel="stylesheet"
+      href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.1/font/bootstrap-icons.css"
+    />
+    <style>
+      body {
+        background: #0f172a;
+        min-height: 100vh;
+        font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+        color: #f8fafc;
+      }
+      .navbar-custom {
+        background: rgba(30, 41, 59, 0.8);
+        backdrop-filter: blur(12px);
+        border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+      }
+      .glass-card {
+        background: rgba(30, 41, 59, 0.6);
+        backdrop-filter: blur(16px);
+        border: 1px solid rgba(255, 255, 255, 0.1);
+        border-radius: 1rem;
+        box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.3);
+      }
+      .table-dark-custom {
+        color: #e2e8f0;
+      }
+      .table-dark-custom th {
+        background: rgba(15, 23, 42, 0.8);
+        border-color: rgba(255, 255, 255, 0.1);
+      }
+      .table-dark-custom td {
+        border-color: rgba(255, 255, 255, 0.05);
+        vertical-align: middle;
+      }
+    </style>
+  </head>
+  <body>
+    <!-- Navbar -->
+    <nav class="navbar navbar-expand-lg navbar-dark navbar-custom sticky-top">
+      <div class="container">
+        <a class="navbar-brand fw-bold d-flex align-items-center" href="/admin/dashboard">
+          <i class="bi bi-shield-check text-purple me-2 fs-4" style="color: #c084fc;"></i>
+          Portal Dashboard Admin
+        </a>
+        <div class="d-flex align-items-center gap-2">
+          <a href="/chat" class="btn btn-outline-info btn-sm rounded-pill px-3">
+            <i class="bi bi-chat-dots-fill me-1"></i> Buka Live Chat Admin
+          </a>
+          <a href="/admin/logout" class="btn btn-outline-danger btn-sm rounded-pill px-3">
+            <i class="bi bi-box-arrow-right me-1"></i> Logout
+          </a>
+        </div>
+      </div>
+    </nav>
+
+    <!-- Main Content -->
+    <div class="container py-4">
+      <div class="row mb-4 align-items-center">
+        <div class="col-md-8">
+          <h3 class="fw-bold mb-1"><%= title %></h3>
+          <p class="text-secondary mb-0">Kelola dan pantau seluruh data pengujung / pasien yang telah mengisi form publik.</p>
+        </div>
+        <div class="col-md-4 text-md-end mt-3 mt-md-0">
+          <div class="bg-dark p-3 rounded-3 border border-secondary d-inline-block text-start">
+            <small class="text-secondary d-block">Total Pasien Terdaftar</small>
+            <span class="fs-4 fw-bold text-info"><%= users ? users.length : 0 %> Orang</span>
+          </div>
+        </div>
+      </div>
+
+      <% if (typeof success !== 'undefined' && success) { %>
+        <div class="alert alert-success alert-dismissible fade show rounded-3" role="alert">
+          <i class="bi bi-check-circle-fill me-2"></i><%= success %>
+          <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+        </div>
+      <% } %>
+
+      <div class="glass-card p-4">
+        <div class="table-responsive">
+          <table class="table table-dark-custom align-middle">
+            <thead>
+              <tr>
+                <th scope="col" style="width: 80px;">ID</th>
+                <th scope="col">Nama Lengkap</th>
+                <th scope="col">Kelas / Kategori</th>
+                <th scope="col" class="text-end" style="width: 150px;">Aksi</th>
+              </tr>
+            </thead>
+            <tbody>
+              <% if (users && users.length > 0) { %>
+                <% for (let user of users) { %>
+                  <tr>
+                    <td class="fw-bold text-secondary">#<%= user.id %></td>
+                    <td>
+                      <div class="d-flex align-items-center">
+                        <div class="bg-primary bg-opacity-25 text-info rounded-circle p-2 me-2 d-flex align-items-center justify-content-center" style="width:36px; height:36px;">
+                          <i class="bi bi-person"></i>
+                        </div>
+                        <span class="fw-semibold text-white"><%= user.nama %></span>
+                      </div>
+                    </td>
+                    <td>
+                      <span class="badge bg-secondary bg-opacity-50 text-light px-3 py-2 border border-secondary rounded-pill">
+                        <%= user.kelas %>
+                      </span>
+                    </td>
+                    <td class="text-end">
+                      <form action="/admin/delete/<%= user.id %>" method="POST" onsubmit="return confirm('Apakah Anda yakin ingin menghapus data ini?');" class="d-inline">
+                        <button type="submit" class="btn btn-outline-danger btn-sm rounded-3">
+                          <i class="bi bi-trash-fill me-1"></i> Hapus
+                        </button>
+                      </form>
+                    </td>
+                  </tr>
+                <% } %>
+              <% } else { %>
+                <tr>
+                  <td colspan="4" class="text-center py-5 text-secondary">
+                    <i class="bi bi-inbox fs-1 d-block mb-2"></i>
+                    Belum ada data pasien terdaftar saat ini.
+                  </td>
+                </tr>
+              <% } %>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+  </body>
+</html>
