@@ -3,54 +3,61 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Chat Room - <%= userName %></title>
+  <title>Room <%= roomId %> - Admin</title>
   <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet" />
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
     body { background: #1a1a2e; color: #fff; font-family: 'Segoe UI', sans-serif; height: 100vh; display: flex; flex-direction: column; }
     .chat-header { background: #16213e; padding: 15px 25px; border-bottom: 1px solid #0f3460; display: flex; align-items: center; justify-content: space-between; }
-    .chat-header h5 { margin: 0; }
-    .chat-header .room-label { color: #a0a0b0; font-size: 13px; }
-    .online-badge { background: #27ae60; color: #fff; font-size: 12px; padding: 3px 10px; border-radius: 20px; }
+    .chat-header .back-btn { color: #e94560; text-decoration: none; font-weight: 600; margin-right: 15px; }
+    .chat-header .room-info h5 { margin: 0; color: #fff; }
+    .chat-header .room-info span { color: #a0a0b0; font-size: 13px; }
+    .admin-badge { background: #e94560; color: #fff; font-size: 11px; padding: 3px 10px; border-radius: 20px; font-weight: 600; }
     .chat-messages { flex: 1; overflow-y: auto; padding: 20px 25px; }
-    .msg { margin-bottom: 15px; max-width: 80%; }
-    .msg-mine { margin-left: auto; }
+    .msg { margin-bottom: 15px; max-width: 75%; }
+    .msg-admin { margin-left: auto; }
     .msg .msg-bubble { padding: 10px 15px; border-radius: 12px; font-size: 14px; line-height: 1.5; word-wrap: break-word; }
-    .msg-mine .msg-bubble { background: #e94560; color: #fff; border-bottom-right-radius: 4px; }
-    .msg-other .msg-bubble { background: #0f3460; color: #fff; border-bottom-left-radius: 4px; }
+    .msg-admin .msg-bubble { background: #e94560; color: #fff; border-bottom-right-radius: 4px; }
+    .msg-user .msg-bubble { background: #0f3460; color: #fff; border-bottom-left-radius: 4px; }
     .msg .msg-meta { font-size: 11px; color: #808090; margin-top: 4px; }
-    .msg-mine .msg-meta { text-align: right; }
-    .no-msg { text-align: center; color: #808090; padding: 60px 20px; font-size: 14px; }
+    .msg-admin .msg-meta { text-align: right; }
+    .msg .delete-btn { background: none; border: none; color: #666; font-size: 11px; cursor: pointer; margin-left: 8px; }
+    .msg .delete-btn:hover { color: #e94560; }
     .chat-input { background: #16213e; padding: 15px 25px; border-top: 1px solid #0f3460; display: flex; gap: 10px; }
     .chat-input input { flex: 1; background: #0f3460; border: 1px solid #1a1a4e; color: #fff; padding: 12px 15px; border-radius: 8px; font-size: 14px; }
     .chat-input input:focus { outline: none; border-color: #e94560; }
     .chat-input button { background: #e94560; border: none; color: #fff; padding: 12px 25px; border-radius: 8px; font-weight: 600; cursor: pointer; }
     .chat-input button:hover { background: #c73650; }
-    .admin-msg { border-left: 3px solid #e94560; }
+    .no-msg { text-align: center; color: #808090; padding: 60px 20px; font-size: 14px; }
   </style>
 </head>
 <body>
   <div class="chat-header">
-    <div>
-      <h5>ROOM: <%= userName %></h5>
-      <span class="room-label">ID Room: <%= roomId %></span>
+    <div style="display:flex; align-items:center;">
+      <a href="/admin" class="back-btn">&larr; Kembali</a>
+      <div class="room-info">
+        <h5><%= user ? user.nama : 'Room ' + roomId %></h5>
+        <span>ID: <%= roomId %> <% if (user) { %> | <%= user.kelas %><% } %></span>
+      </div>
     </div>
-    <span class="online-badge" id="onlineBadge">Online</span>
+    <span class="admin-badge">ADMIN</span>
   </div>
 
   <div class="chat-messages" id="chatMessages">
     <% if (messages.length === 0) { %>
-      <div class="no-msg">Belum ada pesan. Mulai percakapan!</div>
+      <div class="no-msg">Belum ada pesan di room ini</div>
     <% } else { %>
       <% messages.forEach(msg => { %>
-        <div class="msg <%= msg.sender_name === userName ? 'msg-mine' : 'msg-other' %>" data-id="<%= msg.id %>">
-          <div class="msg-bubble">
-            <% if (msg.sender_name === 'Admin') { %><span style="font-size:10px;background:#e94560;padding:1px 6px;border-radius:8px;margin-right:5px;">ADMIN</span><% } %>
-            <%= msg.message %>
-          </div>
+        <div class="msg <%= msg.sender_name === 'Admin' ? 'msg-admin' : 'msg-user' %>" data-id="<%= msg.id %>">
+          <div class="msg-bubble"><%= msg.message %></div>
           <div class="msg-meta">
             <strong><%= msg.sender_name %></strong>
             &middot; <%= new Date(msg.created_at).toLocaleString('id-ID', { day:'2-digit', month:'2-digit', year:'numeric', hour:'2-digit', minute:'2-digit' }) %>
+            <form method="POST" action="/admin/message/delete" style="display:inline;" onsubmit="return confirm('Hapus pesan ini?')">
+              <input type="hidden" name="messageId" value="<%= msg.id %>" />
+              <input type="hidden" name="roomId" value="<%= roomId %>" />
+              <button type="submit" class="delete-btn">Hapus</button>
+            </form>
           </div>
         </div>
       <% }) %>
@@ -58,7 +65,7 @@
   </div>
 
   <div class="chat-input">
-    <input type="text" id="msgInput" placeholder="Ketik pesan..." autocomplete="off" />
+    <input type="text" id="msgInput" placeholder="Ketik pesan sebagai Admin..." autocomplete="off" />
     <button id="sendBtn">Kirim</button>
   </div>
 
@@ -66,11 +73,10 @@
   <script>
     const socket = io();
     const roomId = '<%= roomId %>';
-    const myName = '<%= userName %>';
+    const adminName = '<%= adminUser %>';
     const chatMessages = document.getElementById('chatMessages');
     const msgInput = document.getElementById('msgInput');
     const sendBtn = document.getElementById('sendBtn');
-    const onlineBadge = document.getElementById('onlineBadge');
 
     socket.emit('join-room', roomId);
 
@@ -88,18 +94,20 @@
       const noMsg = chatMessages.querySelector('.no-msg');
       if (noMsg) noMsg.remove();
 
-      const isMine = data.sender_name === myName;
+      const isMine = data.sender_name.toLowerCase() === 'admin';
       const div = document.createElement('div');
-      div.className = 'msg ' + (isMine ? 'msg-mine' : 'msg-other');
+      div.className = 'msg ' + (isMine ? 'msg-admin' : 'msg-user');
       div.dataset.id = data.id;
       div.innerHTML = `
-        <div class="msg-bubble">
-          ${data.sender_name === 'Admin' ? '<span style="font-size:10px;background:#e94560;padding:1px 6px;border-radius:8px;margin-right:5px;">ADMIN</span>' : ''}
-          ${data.message}
-        </div>
+        <div class="msg-bubble">${data.message}</div>
         <div class="msg-meta">
           <strong>${data.sender_name}</strong>
           &middot; ${formatTime(data.created_at)}
+          <form method="POST" action="/admin/message/delete" style="display:inline;" onsubmit="return confirm('Hapus pesan ini?')">
+            <input type="hidden" name="messageId" value="${data.id}" />
+            <input type="hidden" name="roomId" value="${roomId}" />
+            <button type="submit" class="delete-btn">Hapus</button>
+          </form>
         </div>
       `;
       chatMessages.appendChild(div);
@@ -109,7 +117,7 @@
     sendBtn.addEventListener('click', () => {
       const msg = msgInput.value.trim();
       if (!msg) return;
-      socket.emit('message', { roomId, senderName: myName, message: msg });
+      socket.emit('message', { roomId, senderName: 'Admin', message: msg });
       msgInput.value = '';
     });
 
@@ -122,10 +130,6 @@
         const exists = chatMessages.querySelector(`[data-id="${data.id}"]`);
         if (!exists) appendMessage(data);
       }
-    });
-
-    socket.on('user-count', (count) => {
-      onlineBadge.textContent = count + ' Online';
     });
   </script>
 </body>
