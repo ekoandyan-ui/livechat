@@ -1,0 +1,223 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Akses Admin & Masuk Sistem | Dinkes Live Chat</title>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+  
+  <style>
+    :root {
+      --primary-color: #0f172a;
+      --accent-color: #2563eb;
+      --gradient-bg: linear-gradient(135deg, #0f172a 0%, #1e293b 50%, #0f766e 100%);
+      --card-bg: rgba(255, 255, 255, 0.95);
+    }
+    body {
+      font-family: 'Plus Jakarta Sans', sans-serif;
+      background: var(--gradient-bg);
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 20px;
+    }
+    .auth-card {
+      background: var(--card-bg);
+      backdrop-filter: blur(16px);
+      border-radius: 24px;
+      box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.35);
+      border: 1px solid rgba(255, 255, 255, 0.2);
+      width: 100%;
+      max-width: 480px;
+      overflow: hidden;
+      transition: all 0.3s ease;
+    }
+    .auth-header {
+      background: linear-gradient(135deg, #1e293b, #0f172a);
+      color: white;
+      padding: 30px 25px 25px;
+      text-align: center;
+      position: relative;
+    }
+    .auth-header .badge-tag {
+      background: rgba(37, 99, 235, 0.2);
+      color: #60a5fa;
+      border: 1px solid rgba(96, 165, 250, 0.3);
+      padding: 4px 12px;
+      border-radius: 20px;
+      font-size: 0.8rem;
+      font-weight: 600;
+      letter-spacing: 0.5px;
+    }
+    .nav-pills .nav-link {
+      color: #64748b;
+      font-weight: 600;
+      font-size: 0.95rem;
+      border-radius: 12px;
+      padding: 10px 16px;
+      transition: all 0.2s ease;
+    }
+    .nav-pills .nav-link.active {
+      background-color: var(--accent-color);
+      color: white;
+      box-shadow: 0 4px 12px rgba(37, 99, 235, 0.3);
+    }
+    .form-control, .form-select {
+      border-radius: 12px;
+      padding: 12px 16px;
+      border: 1.5px solid #e2e8f0;
+      font-weight: 500;
+    }
+    .form-control:focus, .form-select:focus {
+      border-color: var(--accent-color);
+      box-shadow: 0 0 0 4px rgba(37, 99, 235, 0.15);
+    }
+    .btn-custom {
+      background: linear-gradient(135deg, #2563eb, #1d4ed8);
+      color: white;
+      font-weight: 700;
+      border-radius: 12px;
+      padding: 12px;
+      border: none;
+      transition: all 0.2s ease;
+    }
+    .btn-custom:hover {
+      transform: translateY(-1px);
+      box-shadow: 0 8px 20px rgba(37, 99, 235, 0.4);
+      color: white;
+    }
+    .btn-secondary-custom {
+      background: #f1f5f9;
+      color: #475569;
+      font-weight: 600;
+      border-radius: 12px;
+      padding: 12px;
+      border: 1px solid #cbd5e1;
+    }
+    .btn-secondary-custom:hover {
+      background: #e2e8f0;
+      color: #1e293b;
+    }
+  </style>
+</head>
+<body>
+
+  <div class="auth-card">
+    <div class="auth-header">
+      <span class="badge-tag mb-2 d-inline-block"><i class="bi bi-shield-lock-fill me-1"></i> PORTAL SISTEM DINKES</span>
+      <h4 class="fw-bold mb-1">Pilih Mode Masuk</h4>
+      <p class="text-white-50 small mb-0">Silakan pilih akses Administrator atau Form Pengisian Cepat</p>
+    </div>
+
+    <div class="p-4">
+      <!-- Flash Alert Message -->
+      <% if (error) { %>
+        <div class="alert alert-danger border-0 shadow-sm rounded-3 d-flex align-items-center mb-3">
+          <i class="bi bi-exclamation-triangle-fill me-2 fs-5"></i>
+          <div><%= error %></div>
+        </div>
+      <% } %>
+      
+      <% if (success) { %>
+        <div class="alert alert-success border-0 shadow-sm rounded-3 d-flex align-items-center mb-3">
+          <i class="bi bi-check-circle-fill me-2 fs-5"></i>
+          <div><%= success %></div>
+        </div>
+      <% } %>
+
+      <!-- Tab Navigation Switch -->
+      <ul class="nav nav-pills nav-justified mb-4 p-1 bg-light rounded-3 border" id="authTab" role="tablist">
+        <li class="nav-item" role="presentation">
+          <button class="nav-link <%= mode !== 'form' ? 'active' : '' %>" id="admin-tab" data-bs-toggle="tab" data-bs-target="#admin-pane" type="button" role="tab">
+            <i class="bi bi-person-fill-gear me-1"></i> Admin Login
+          </button>
+        </li>
+        <li class="nav-item" role="presentation">
+          <button class="nav-link <%= mode === 'form' ? 'active' : '' %>" id="form-tab" data-bs-toggle="tab" data-bs-target="#form-pane" type="button" role="tab">
+            <i class="bi bi-file-earmark-person me-1"></i> Form Nama & Kelas
+          </button>
+        </li>
+      </ul>
+
+      <div class="tab-content" id="authTabContent">
+        <!-- MODE 1: LOGIN USERNAME & PASSWORD -->
+        <div class="tab-pane fade <%= mode !== 'form' ? 'show active' : '' %>" id="admin-pane" role="tabpanel">
+          <form action="/admin/login" method="POST">
+            <div class="mb-3">
+              <label for="username" class="form-label fw-semibold text-secondary small">Username Admin</label>
+              <div class="input-group">
+                <span class="input-group-text bg-white border-end-0 rounded-start-3"><i class="bi bi-person-badge text-muted"></i></span>
+                <input type="text" id="username" name="username" class="form-control border-start-0" placeholder="Masukkan username" required autofocus>
+              </div>
+            </div>
+
+            <div class="mb-4">
+              <label for="password" class="form-label fw-semibold text-secondary small">Password</label>
+              <div class="input-group">
+                <span class="input-group-text bg-white border-end-0 rounded-start-3"><i class="bi bi-key text-muted"></i></span>
+                <input type="password" id="password" name="password" class="form-control border-start-0" placeholder="Masukkan password" required>
+              </div>
+            </div>
+
+            <button type="submit" class="btn btn-custom w-100 mb-2">
+              <i class="bi bi-box-arrow-in-right me-1"></i> Masuk Sebagai Admin
+            </button>
+          </form>
+          <div class="text-center mt-3">
+            <small class="text-muted">Default login awal: Username <strong>admin</strong> | Password <strong>admin123</strong></small>
+          </div>
+        </div>
+
+        <!-- MODE 2: FORM NAMA & KELAS -->
+        <div class="tab-pane fade <%= mode === 'form' ? 'show active' : '' %>" id="form-pane" role="tabpanel">
+          <form action="/admin/entry" method="POST">
+            <div class="mb-3">
+              <label for="nama" class="form-label fw-semibold text-secondary small">Nama Lengkap</label>
+              <div class="input-group">
+                <span class="input-group-text bg-white border-end-0 rounded-start-3"><i class="bi bi-person text-muted"></i></span>
+                <input type="text" id="nama" name="nama" class="form-control border-start-0" placeholder="Contoh: Budi Santoso" required>
+              </div>
+            </div>
+
+            <div class="mb-3">
+              <label for="kelas" class="form-label fw-semibold text-secondary small">Kelas / Unit Kerja</label>
+              <div class="input-group">
+                <span class="input-group-text bg-white border-end-0 rounded-start-3"><i class="bi bi-building text-muted"></i></span>
+                <input type="text" id="kelas" name="kelas" class="form-control border-start-0" placeholder="Contoh: Kelas 1 / Subag Umum" required>
+              </div>
+            </div>
+
+            <div class="mb-4">
+              <label for="redirect_to" class="form-label fw-semibold text-secondary small">Tujuan Setelah Simpan</label>
+              <select name="redirect_to" id="redirect_to" class="form-select">
+                <option value="dashboard">Ke Admin Dashboard</option>
+                <option value="chat">Ke Forum Diskusi Chat Live</option>
+              </select>
+            </div>
+
+            <button type="submit" class="btn btn-custom w-100 mb-2">
+              <i class="bi bi-check-circle me-1"></i> Simpan & Lanjutkan
+            </button>
+          </form>
+        </div>
+      </div>
+
+      <hr class="my-4 text-muted opacity-25">
+
+      <div class="d-flex justify-content-between align-items-center">
+        <a href="/" class="btn btn-sm btn-secondary-custom text-decoration-none">
+          <i class="bi bi-house me-1"></i> Halaman Utama
+        </a>
+        <a href="/chat" class="btn btn-sm btn-outline-primary rounded-3">
+          <i class="bi bi-chat-dots me-1"></i> Forum Chat Live
+        </a>
+      </div>
+    </div>
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
+</body>
+</html>

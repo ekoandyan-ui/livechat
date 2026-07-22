@@ -1,51 +1,145 @@
 <!DOCTYPE html>
-<html lang="en">
-  <head>
-    <meta charset="UTF-8" />
-    <meta http-equiv="X-UA-Compatible" content="IE=edge" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>DEACODE TUTO NODE 1</title>
-    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.0.2/dist/css/bootstrap.min.css" rel="stylesheet" integrity="sha384-EVSTQN3/azprG1Anm3QDgpJLIm9Nao0Yz1ztcQTwFspd3yD65VohhpuuCOmLASjC" crossorigin="anonymous">
-  </head>
-  <body/>
+<html lang="id">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Portal Sistem Informasi & Live Chat Dinkes</title>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+  
+  <style>
+    :root {
+      --primary-color: #0f172a;
+      --accent-color: #2563eb;
+    }
+    body {
+      font-family: 'Plus Jakarta Sans', sans-serif;
+      background-color: #f8fafc;
+      color: #334155;
+    }
+    .hero-section {
+      background: linear-gradient(135deg, #0f172a 0%, #1e293b 60%, #0369a1 100%);
+      color: white;
+      padding: 60px 0;
+      border-radius: 0 0 32px 32px;
+      box-shadow: 0 10px 30px rgba(0, 0, 0, 0.15);
+    }
+    .card-feature {
+      border: 1px solid #e2e8f0;
+      border-radius: 20px;
+      transition: all 0.3s ease;
+      background: white;
+    }
+    .card-feature:hover {
+      transform: translateY(-5px);
+      box-shadow: 0 20px 30px -10px rgba(0, 0, 0, 0.08);
+    }
+  </style>
+</head>
+<body>
+
+  <!-- HERO SECTION -->
+  <div class="hero-section text-center">
     <div class="container">
-        <h3><%= title %></h3>
-        <table class="table">
-          <thead>
+      <span class="badge bg-primary bg-opacity-20 text-info border border-info border-opacity-30 px-3 py-2 rounded-pill mb-3 fw-semibold">
+        <i class="bi bi-shield-check me-1"></i> APLIKASI LIVE CHAT & PORTAL DINKES 2026
+      </span>
+      <h1 class="fw-extrabold display-5 mb-3"><%= title %></h1>
+      <p class="lead text-white-50 max-w-2xl mx-auto mb-4" style="max-width: 600px;">
+        Sistem terintegrasi untuk pengisian form pasien/user, manajemen data admin, dan diskusi ruang obrolan realtime.
+      </p>
+
+      <div class="d-flex flex-wrap justify-content-center gap-3">
+        <a href="/admin/login?mode=credentials" class="btn btn-primary btn-lg rounded-3 px-4 fw-bold">
+          <i class="bi bi-person-lock me-2"></i> Login Admin
+        </a>
+        <a href="/admin/login?mode=form" class="btn btn-light btn-lg rounded-3 px-4 fw-bold">
+          <i class="bi bi-file-earmark-text me-2"></i> Form Nama & Kelas
+        </a>
+        <a href="/chat" class="btn btn-outline-light btn-lg rounded-3 px-4 fw-bold">
+          <i class="bi bi-chat-fill me-2"></i> Forum Chat Live
+        </a>
+      </div>
+    </div>
+  </div>
+
+  <!-- CONTENT CONTAINER -->
+  <div class="container py-5">
+    <div class="row g-4 mb-5">
+
+      <div class="col-md-6 col-lg-4">
+        <div class="card-feature p-4 h-100">
+          <div class="bg-primary bg-opacity-10 text-primary rounded-3 p-3 d-inline-block mb-3">
+            <i class="bi bi-shield-lock-fill fs-3"></i>
+          </div>
+          <h4 class="fw-bold">Login Admin (Credentials)</h4>
+          <p class="text-muted small mb-4">Masuk dengan Username & Password administrator untuk mengakses dashboard manajemen data dan hak hapus entri.</p>
+          <a href="/admin/login?mode=credentials" class="btn btn-outline-primary w-100 rounded-3 fw-semibold">Buka Login Admin</a>
+        </div>
+      </div>
+
+      <div class="col-md-6 col-lg-4">
+        <div class="card-feature p-4 h-100">
+          <div class="bg-success bg-opacity-10 text-success rounded-3 p-3 d-inline-block mb-3">
+            <i class="bi bi-person-vcard-fill fs-3"></i>
+          </div>
+          <h4 class="fw-bold">Form Nama & Kelas</h4>
+          <p class="text-muted small mb-4">Form pengisian cepat untuk pasien/user memasukkan Nama Lengkap dan Kelas tanpa perlunya password.</p>
+          <a href="/admin/login?mode=form" class="btn btn-outline-success w-100 rounded-3 fw-semibold">Isi Form Nama & Kelas</a>
+        </div>
+      </div>
+
+      <div class="col-md-6 col-lg-4">
+        <div class="card-feature p-4 h-100">
+          <div class="bg-info bg-opacity-10 text-info rounded-3 p-3 d-inline-block mb-3">
+            <i class="bi bi-chat-quote-fill fs-3"></i>
+          </div>
+          <h4 class="fw-bold">Forum Diskusi Live</h4>
+          <p class="text-muted small mb-4">Ruang obrolan langsung (Socket.IO Realtime) antar pengguna dan petugas secara instan.</p>
+          <a href="/chat" class="btn btn-outline-info w-100 rounded-3 fw-semibold">Masuk Forum Chat</a>
+        </div>
+      </div>
+
+    </div>
+
+    <!-- QUICK PREVIEW TABLE -->
+    <div class="card border-0 shadow-sm rounded-4 overflow-hidden">
+      <div class="card-header bg-white py-3 px-4 border-bottom d-flex justify-content-between align-items-center">
+        <h5 class="fw-bold mb-0 text-dark"><i class="bi bi-table me-2 text-primary"></i> Data Pasien / User Terbaru</h5>
+        <a href="/admin/dashboard" class="btn btn-sm btn-primary rounded-3 fw-semibold">Kelola Seluruh Data</a>
+      </div>
+      <div class="table-responsive">
+        <table class="table table-hover align-middle mb-0">
+          <thead class="table-light">
             <tr>
-              <th scope="col">id</th>
-              <th scope="col">nama</th>
-              <th scope="col">kelas</th>
+              <th>ID</th>
+              <th>Nama Lengkap</th>
+              <th>Kelas / Unit</th>
+              <th>Waktu Dibuat</th>
             </tr>
           </thead>
           <tbody>
-            <% for (let user of users) { %>
+            <% if (users && users.length > 0) { %>
+              <% users.slice(0, 5).forEach(user => { %>
+                <tr>
+                  <td class="fw-bold text-muted">#<%= user.id %></td>
+                  <td class="fw-semibold text-dark"><%= user.nama %></td>
+                  <td><span class="badge bg-primary bg-opacity-10 text-primary px-3 py-2 rounded-pill"><%= user.kelas %></span></td>
+                  <td class="text-muted small"><%= user.created_at ? new Date(user.created_at).toLocaleString('id-ID') : '-' %></td>
+                </tr>
+              <% }) %>
+            <% } else { %>
               <tr>
-                <th scope="row"><%= user.id %></th>
-                <th scope="row"><%= user.nama %></th>
-                <th scope="row"><%= user.kelas %></th>
+                <td colspan="4" class="text-center py-4 text-muted">Belum ada data pasien/user tersimpan di database Supabase.</td>
               </tr>
             <% } %>
           </tbody>
         </table>
-    <form action="/tambah" method="post">
-      <h3>TAMBAH PASIEN BARU</h3>
-      <div class="row mb-3">
-        <label for="nama" class="col-sm-2 col-form-label">Nama Lengkap</label>
-        <div class="col-sm-10">
-          <input type="text" name="nama" class="form-control">
-        </div>
       </div>
-      <div class="row mb-3">
-        <label for="kelas" class="col-sm-2 col-form-label">Kelas</label>
-        <div class="col-sm-10">
-          <input type="text" name="kelas" class="form-control">
-        </div>
-      </div>
-      <input type="submit" class="btn btn-danger" value="Tambahkan"/>
-    </form>
-    <a class="float-end mb-4" href="/chat">Forum Diskusi</a>
+    </div>
   </div>
-    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.0.2/dist/js/bootstrap.bundle.min.js" integrity="sha384-MrcW6ZMFYlzcLA8Nl+NtUVF0sA7MsXsP1UyJoMp4YLEuNSfAP+JcXn/tWtIaxVXM" crossorigin="anonymous"></script>
-  </body>
+
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
+</body>
 </html>
