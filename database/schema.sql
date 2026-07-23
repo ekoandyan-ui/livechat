@@ -5,7 +5,7 @@
 
 -- 1. Pastikan tabel "user" sudah ada (dari project sebelumnya)
 -- Kalau belum, buat dulu:
-CREATE TABLE IF NOT EXISTS users (
+CREATE TABLE IF NOT EXISTS "user" (
   id SERIAL PRIMARY KEY,
   nama TEXT NOT NULL,
   kelas TEXT NOT NULL,
