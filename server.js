@@ -69,30 +69,24 @@ app.get("/test-db", async (req, res) => {
 });
 
 // =============================================
-// ROUTE: Halaman Utama - Daftar Pasien
+// ROUTE: Halaman Utama - Input Data Pasien
 // =============================================
-app.get("/", async (req, res) => {
-  try {
-    const result = await db.query('SELECT * FROM "user" ORDER BY id ASC');
-    res.render("index", { users: result.rows, title: "DAFTAR PASIEN" });
-  } catch (err) {
-    console.error("Error ambil data user:", err.message);
-    console.error("Full error:", err);
-    res.status(500).send("Gagal mengambil data: " + err.message);
-  }
+app.get("/", (req, res) => {
+  res.render("index", { title: "TAMBAH PASIEN BARU" });
 });
 
 // =============================================
-// ROUTE: Tambah Pasien Baru
+// ROUTE: Tambah Pasien Baru & Langsung Masuk Chat
 // =============================================
 app.post("/tambah", async (req, res) => {
   try {
     const { nama, kelas } = req.body;
-    await db.query('INSERT INTO "user" (nama, kelas) VALUES ($1, $2)', [
-      nama,
-      kelas,
-    ]);
-    res.redirect("/");
+    const result = await db.query(
+      'INSERT INTO "user" (nama, kelas) VALUES ($1, $2) RETURNING id',
+      [nama, kelas]
+    );
+    const newUserId = result.rows[0].id;
+    res.redirect(`/chat/${newUserId}`);
   } catch (err) {
     console.error("Error tambah data:", err.message);
     res.status(500).send("Gagal menyimpan data.");

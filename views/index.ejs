@@ -6,72 +6,39 @@
   <title><%= title %></title>
   <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet" />
   <style>
-    body { background: #1a1a2e; color: #fff; min-height: 100vh; }
-    .container { padding: 30px; }
-    h3 { color: #e94560; font-weight: 700; margin-bottom: 25px; }
-    .table { color: #fff; }
-    .table thead th { background: #16213e; border-color: #0f3460; font-size: 13px; }
-    .table tbody td { background: #16213e; border-color: #0f3460; vertical-align: middle; }
-    .table tbody tr:hover td { background: #1a1a4e; }
-    .btn-chat { background: #e94560; border: none; color: #fff; padding: 5px 15px; border-radius: 6px; text-decoration: none; font-size: 13px; }
-    .btn-chat:hover { background: #c73650; color: #fff; }
-    .form-card { background: #16213e; border-radius: 12px; padding: 25px; margin-top: 30px; }
-    .form-card h4 { color: #e94560; margin-bottom: 20px; }
-    .form-control { background: #0f3460; border: 1px solid #1a1a4e; color: #fff; }
-    .form-control:focus { background: #0f3460; color: #fff; border-color: #e94560; box-shadow: none; }
-    .form-label { color: #a0a0b0; font-size: 14px; }
-    .btn-tambah { background: #e94560; border: none; font-weight: 600; }
-    .btn-tambah:hover { background: #c73650; }
-    .top-links { display: flex; gap: 10px; margin-bottom: 20px; }
-    .top-links a { color: #a0a0b0; text-decoration: none; font-size: 14px; padding: 6px 14px; border: 1px solid #0f3460; border-radius: 8px; }
+    body { background: #1a1a2e; color: #fff; min-height: 100vh; display: flex; flex-direction: column; align-items: center; justify-content: center; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; padding: 20px; position: relative; }
+    .main-card { background: #16213e; border-radius: 16px; padding: 35px 30px; width: 100%; max-width: 480px; box-shadow: 0 10px 30px rgba(0, 0, 0, 0.4); border: 1px solid #0f3460; }
+    .main-card h3 { color: #e94560; font-weight: 700; text-align: center; margin-bottom: 8px; font-size: 24px; }
+    .main-card p.subtitle { color: #a0a0b0; text-align: center; font-size: 14px; margin-bottom: 30px; }
+    .form-control { background: #0f3460; border: 1px solid #1a1a4e; color: #fff; padding: 12px 15px; border-radius: 10px; }
+    .form-control:focus { background: #0f3460; color: #fff; border-color: #e94560; box-shadow: 0 0 0 0.25rem rgba(233, 69, 96, 0.25); }
+    .form-label { color: #d0d0e0; font-size: 14px; font-weight: 600; margin-bottom: 6px; }
+    .btn-tambah { background: #e94560; border: none; font-weight: 600; padding: 12px; border-radius: 10px; width: 100%; font-size: 16px; margin-top: 10px; transition: all 0.2s ease-in-out; }
+    .btn-tambah:hover { background: #c73650; transform: translateY(-1px); }
+    .top-links { position: absolute; top: 20px; right: 20px; }
+    .top-links a { color: #a0a0b0; text-decoration: none; font-size: 13px; padding: 6px 14px; border: 1px solid #0f3460; border-radius: 8px; transition: all 0.2s; }
     .top-links a:hover { color: #e94560; border-color: #e94560; }
   </style>
 </head>
 <body>
-  <div class="container">
-    <div class="top-links">
-      <a href="/admin">Admin Panel</a>
-    </div>
+  <div class="top-links">
+    <a href="/admin">Admin Panel</a>
+  </div>
+  <div class="main-card">
     <h3><%= title %></h3>
-    <table class="table">
-      <thead>
-        <tr>
-          <th>ID</th>
-          <th>Nama</th>
-          <th>Kelas</th>
-          <th>Aksi</th>
-        </tr>
-      </thead>
-      <tbody>
-        <% for (let user of users) { %>
-          <tr>
-            <td><%= user.id %></td>
-            <td><%= user.nama %></td>
-            <td><%= user.kelas %></td>
-            <td><a href="/chat/<%= user.id %>" class="btn-chat">Masuk Chat</a></td>
-          </tr>
-        <% } %>
-      </tbody>
-    </table>
+    <p class="subtitle">Silakan isi data Anda untuk memulai percakapan</p>
 
-    <div class="form-card">
-      <h4>TAMBAH PASIEN BARU</h4>
-      <form action="/tambah" method="post">
-        <div class="row mb-3">
-          <label class="col-sm-3 col-form-label">Nama Lengkap</label>
-          <div class="col-sm-9">
-            <input type="text" name="nama" class="form-control" required />
-          </div>
-        </div>
-        <div class="row mb-3">
-          <label class="col-sm-3 col-form-label">Kelas</label>
-          <div class="col-sm-9">
-            <input type="text" name="kelas" class="form-control" required />
-          </div>
-        </div>
-        <button type="submit" class="btn btn-tambah btn-danger">Tambahkan</button>
-      </form>
-    </div>
+    <form action="/tambah" method="post">
+      <div class="mb-3">
+        <label class="form-label">Nama Lengkap</label>
+        <input type="text" name="nama" class="form-control" placeholder="Masukkan nama lengkap" required />
+      </div>
+      <div class="mb-4">
+        <label class="form-label">Kelas</label>
+        <input type="text" name="kelas" class="form-control" placeholder="Masukkan kelas" required />
+      </div>
+      <button type="submit" class="btn btn-tambah btn-danger">Tambahkan</button>
+    </form>
   </div>
 </body>
 </html>
