@@ -73,8 +73,7 @@ app.get("/test-db", async (req, res) => {
 // =============================================
 app.get("/", async (req, res) => {
   try {
-    const result = await db.query('SELECT * FROM "user" ORDER BY id ASC');
-    res.render("index", { users: result.rows, title: "DAFTAR PASIEN" });
+    res.render("index", { title: "DAFTAR PASIEN" });
   } catch (err) {
     console.error("Error ambil data user:", err.message);
     console.error("Full error:", err);
@@ -88,11 +87,12 @@ app.get("/", async (req, res) => {
 app.post("/tambah", async (req, res) => {
   try {
     const { nama, kelas } = req.body;
-    await db.query('INSERT INTO "user" (nama, kelas) VALUES ($1, $2)', [
+    const result = await db.query('INSERT INTO users (nama, kelas) VALUES ($1, $2) RETURNING id', [
       nama,
       kelas,
     ]);
-    res.redirect("/");
+    const newId = result.rows[0].id;
+    res.redirect(`/chat/${newId}`);
   } catch (err) {
     console.error("Error tambah data:", err.message);
     res.status(500).send("Gagal menyimpan data.");
@@ -105,7 +105,7 @@ app.post("/tambah", async (req, res) => {
 app.get("/chat/:roomId", async (req, res) => {
   const { roomId } = req.params;
   try {
-    const userResult = await db.query('SELECT * FROM "user" WHERE id = $1', [
+    const userResult = await db.query('SELECT * FROM users WHERE id = $1', [
       roomId,
     ]);
     const userName = userResult.rows.length > 0 ? userResult.rows[0].nama : "Anonim";
@@ -163,7 +163,7 @@ app.get("/admin/logout", (req, res) => {
 // =============================================
 app.get("/admin", requireAdmin, async (req, res) => {
   try {
-    const usersResult = await db.query('SELECT * FROM "user" ORDER BY id ASC');
+    const usersResult = await db.query('SELECT * FROM users ORDER BY id ASC');
     const rooms = [];
 
     for (const user of usersResult.rows) {
@@ -200,7 +200,7 @@ app.get("/admin", requireAdmin, async (req, res) => {
 app.get("/admin/room/:roomId", requireAdmin, async (req, res) => {
   const { roomId } = req.params;
   try {
-    const userResult = await db.query('SELECT * FROM "user" WHERE id = $1', [
+    const userResult = await db.query('SELECT * FROM users WHERE id = $1', [
       roomId,
     ]);
     const messagesResult = await db.query(
@@ -263,7 +263,7 @@ app.get("/api/messages/:roomId", async (req, res) => {
 // =============================================
 app.get("/api/rooms", async (req, res) => {
   try {
-    const usersResult = await db.query('SELECT * FROM "user" ORDER BY id ASC');
+    const usersResult = await db.query('SELECT * FROM users ORDER BY id ASC');
     const rooms = [];
     for (const user of usersResult.rows) {
       const msgCount = await db.query(
