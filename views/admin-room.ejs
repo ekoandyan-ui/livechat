@@ -48,14 +48,14 @@
       <div class="no-msg">Belum ada pesan di room ini</div>
     <% } else { %>
       <% messages.forEach(msg => { %>
-        <div class="msg <%= msg.sender_name === 'Admin' ? 'msg-admin' : 'msg-user' %>" data-id="<%= msg.id %>">
+        <div class="msg <%= msg.sender_name === adminUser ? 'msg-admin' : 'msg-user' %>" data-id="<%= msg.id %>">
           <div class="msg-bubble"><%= msg.message %></div>
           <div class="msg-meta">
             <strong><%= msg.sender_name %></strong>
             &middot; <%= new Date(msg.created_at).toLocaleString('id-ID', { day:'2-digit', month:'2-digit', year:'numeric', hour:'2-digit', minute:'2-digit' }) %>
             <form method="POST" action="/admin/message/delete" style="display:inline;" onsubmit="return confirm('Hapus pesan ini?')">
               <input type="hidden" name="messageId" value="<%= msg.id %>" />
-              <input type="hidden" name="roomId" value="<%= encodeURIComponent(roomId) %>" />
+              <input type="hidden" name="patientId" value="<%= user.id %>" />
               <button type="submit" class="delete-btn">Hapus</button>
             </form>
           </div>
@@ -74,6 +74,7 @@
     const socket = io();
     const roomId = '<%= roomId %>';
     const adminName = '<%= adminUser %>';
+    const patientId = '<%= user ? user.id : "" %>';
     const chatMessages = document.getElementById('chatMessages');
     const msgInput = document.getElementById('msgInput');
     const sendBtn = document.getElementById('sendBtn');
@@ -105,7 +106,7 @@
           &middot; ${formatTime(data.created_at)}
           <form method="POST" action="/admin/message/delete" style="display:inline;" onsubmit="return confirm('Hapus pesan ini?')">
             <input type="hidden" name="messageId" value="${data.id}" />
-            <input type="hidden" name="roomId" value="${encodeURIComponent(roomId)}" />
+            <input type="hidden" name="patientId" value="${patientId}" />
             <button type="submit" class="delete-btn">Hapus</button>
           </form>
         </div>

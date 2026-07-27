@@ -41,7 +41,7 @@
     </div>
     <div class="room-list">
       <% rooms.forEach(room => { %>
-        <a href="/admin/room/<%= encodeURIComponent(room.roomId) %>" class="room-item">
+        <a href="/admin/room/<%= room.id %>" class="room-item">
           <span class="room-badge"><%= room.totalPesan %></span>
           <div class="room-name"><%= room.nama %></div>
           <div class="room-meta">ID: <%= room.id %> | <%= room.kelas %></div>

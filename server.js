@@ -23,6 +23,16 @@ app.set("view engine", "ejs");
 app.set("views", "views");
 
 // =============================================
+// MIDDLEWARE: Cegah browser cache halaman admin
+// =============================================
+app.use("/admin", (req, res, next) => {
+  res.set("Cache-Control", "no-store, no-cache, must-revalidate, private");
+  res.set("Pragma", "no-cache");
+  res.set("Expires", "0");
+  next();
+});
+
+// =============================================
 // DATABASE
 // =============================================
 const db = new Pool({
@@ -113,7 +123,7 @@ app.post("/tambah", async (req, res) => {
 // ROUTE: Chat Publik (per room, hospital-scoped)
 // =============================================
 app.get("/chat/:roomId", async (req, res) => {
-  const roomId = decodeURIComponent(req.params.roomId);
+  const roomId = req.params.roomId;
   try {
     // Extract userId from roomId format: "rumahSakit_userId"
     const lastUnderscore = roomId.lastIndexOf("_");
@@ -224,22 +234,23 @@ app.get("/admin", requireAdmin, async (req, res) => {
 // =============================================
 // ROUTE: Admin - Lihat Chat Room (hospital-scoped)
 // =============================================
-app.get("/admin/room/:roomId", requireAdmin, async (req, res) => {
-  const roomId = decodeURIComponent(req.params.roomId);
+app.get("/admin/room/:patientId", requireAdmin, async (req, res) => {
+  const patientId = parseInt(req.params.patientId, 10);
+  const rumahSakit = req.session.adminRumahSakit;
   try {
-    // Verify this room belongs to admin's hospital
-    const rumahSakit = req.session.adminRumahSakit;
-    if (!roomId.startsWith(rumahSakit + "_")) {
+    const userResult = await db.query("SELECT * FROM patients WHERE id = $1", [patientId]);
+    const user = userResult.rows[0];
+
+    if (!user) {
+      return res.status(404).send("Pasien tidak ditemukan.");
+    }
+
+    if (user.rumah_sakit !== rumahSakit) {
       return res.status(403).send("Akses ditolak: Room ini bukan milik rumah sakit Anda.");
     }
 
-    // Extract userId from roomId
-    const lastUnderscore = roomId.lastIndexOf("_");
-    const userId = lastUnderscore > -1 ? roomId.substring(lastUnderscore + 1) : roomId;
+    const roomId = `${user.rumah_sakit}_${user.id}`;
 
-    const userResult = await db.query("SELECT * FROM patients WHERE id = $1", [
-      userId,
-    ]);
     const messagesResult = await db.query(
       "SELECT * FROM messages WHERE room_id = $1 ORDER BY created_at ASC",
       [roomId]
@@ -247,7 +258,7 @@ app.get("/admin/room/:roomId", requireAdmin, async (req, res) => {
 
     res.render("admin-room", {
       roomId,
-      user: userResult.rows[0] || null,
+      user,
       messages: messagesResult.rows,
       adminUser: req.session.adminUser,
       adminRumahSakit: rumahSakit,
@@ -262,14 +273,13 @@ app.get("/admin/room/:roomId", requireAdmin, async (req, res) => {
 // ROUTE: Admin - Hapus Pesan
 // =============================================
 app.post("/admin/message/delete", requireAdmin, async (req, res) => {
-  const { messageId, roomId } = req.body;
-  const decodedRoomId = decodeURIComponent(roomId);
+  const { messageId, patientId } = req.body;
   try {
     await db.query("DELETE FROM messages WHERE id = $1", [messageId]);
-    res.redirect(`/admin/room/${encodeURIComponent(decodedRoomId)}`);
+    res.redirect(`/admin/room/${patientId}`);
   } catch (err) {
     console.error("Error hapus pesan:", err.message);
-    res.redirect(`/admin/room/${encodeURIComponent(decodedRoomId)}`);
+    res.redirect(`/admin/room/${patientId}`);
   }
 });
 
@@ -277,7 +287,7 @@ app.post("/admin/message/delete", requireAdmin, async (req, res) => {
 // API: Ambil pesan per room (untuk auto-refresh)
 // =============================================
 app.get("/api/messages/:roomId", async (req, res) => {
-  const roomId = decodeURIComponent(req.params.roomId);
+  const roomId = req.params.roomId;
   const after = req.query.after;
   try {
     let query, params;
