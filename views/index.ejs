@@ -10,8 +10,9 @@
     .main-card { background: #16213e; border-radius: 16px; padding: 35px 30px; width: 100%; max-width: 480px; box-shadow: 0 10px 30px rgba(0, 0, 0, 0.4); border: 1px solid #0f3460; }
     .main-card h3 { color: #e94560; font-weight: 700; text-align: center; margin-bottom: 8px; font-size: 24px; }
     .main-card p.subtitle { color: #a0a0b0; text-align: center; font-size: 14px; margin-bottom: 30px; }
-    .form-control { background: #0f3460; border: 1px solid #1a1a4e; color: #fff; padding: 12px 15px; border-radius: 10px; }
-    .form-control:focus { background: #0f3460; color: #fff; border-color: #e94560; box-shadow: 0 0 0 0.25rem rgba(233, 69, 96, 0.25); }
+    .form-control, .form-select { background: #0f3460; border: 1px solid #1a1a4e; color: #fff; padding: 12px 15px; border-radius: 10px; }
+    .form-control:focus, .form-select:focus { background: #0f3460; color: #fff; border-color: #e94560; box-shadow: 0 0 0 0.25rem rgba(233, 69, 96, 0.25); }
+    .form-select option { background: #0f3460; color: #fff; }
     .form-label { color: #d0d0e0; font-size: 14px; font-weight: 600; margin-bottom: 6px; }
     .btn-tambah { background: #e94560; border: none; font-weight: 600; padding: 12px; border-radius: 10px; width: 100%; font-size: 16px; margin-top: 10px; transition: all 0.2s ease-in-out; }
     .btn-tambah:hover { background: #c73650; transform: translateY(-1px); }
@@ -33,11 +34,20 @@
         <label class="form-label">Nama Lengkap</label>
         <input type="text" name="nama" class="form-control" placeholder="Masukkan nama lengkap" required />
       </div>
-      <div class="mb-4">
+      <div class="mb-3">
         <label class="form-label">Kelas</label>
         <input type="text" name="kelas" class="form-control" placeholder="Masukkan kelas" required />
       </div>
-      <button type="submit" class="btn btn-tambah btn-danger">Tambahkan</button>
+      <div class="mb-4">
+        <label class="form-label">Rumah Sakit Tujuan</label>
+        <select name="rumah_sakit" class="form-select" required>
+          <option value="" disabled selected>Pilih Rumah Sakit</option>
+          <% rumahSakitList.forEach(rs => { %>
+            <option value="<%= rs %>"><%= rs %></option>
+          <% }) %>
+        </select>
+      </div>
+      <button type="submit" class="btn btn-tambah btn-danger">Masuk Chat</button>
     </form>
   </div>
 </body>
