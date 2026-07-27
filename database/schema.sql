@@ -3,8 +3,8 @@
 -- Jalankan SQL ini di Supabase SQL Editor
 -- =============================================
 
--- 1. Tabel "user" dengan kolom rumah_sakit
-CREATE TABLE IF NOT EXISTS "user" (
+-- 1. Tabel "patients" (sebelumnya "user")
+CREATE TABLE IF NOT EXISTS patients (
   id SERIAL PRIMARY KEY,
   nama TEXT NOT NULL,
   kelas TEXT NOT NULL,
@@ -13,7 +13,7 @@ CREATE TABLE IF NOT EXISTS "user" (
 );
 
 -- Jika tabel sudah ada tanpa kolom rumah_sakit, jalankan ini:
--- ALTER TABLE "user" ADD COLUMN IF NOT EXISTS rumah_sakit TEXT NOT NULL DEFAULT '';
+-- ALTER TABLE patients ADD COLUMN IF NOT EXISTS rumah_sakit TEXT NOT NULL DEFAULT '';
 
 -- 2. Tabel messages untuk menyimpan chat secara permanen
 CREATE TABLE IF NOT EXISTS messages (

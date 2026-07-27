@@ -97,7 +97,7 @@ app.post("/tambah", async (req, res) => {
       return res.status(400).send("Rumah sakit tidak valid.");
     }
     const result = await db.query(
-      'INSERT INTO "user" (nama, kelas, rumah_sakit) VALUES ($1, $2, $3) RETURNING id',
+      'INSERT INTO patients (nama, kelas, rumah_sakit) VALUES ($1, $2, $3) RETURNING id',
       [nama, kelas, rumah_sakit]
     );
     const newUserId = result.rows[0].id;
@@ -120,7 +120,7 @@ app.get("/chat/:roomId", async (req, res) => {
     const userId = lastUnderscore > -1 ? roomId.substring(lastUnderscore + 1) : roomId;
     const rumahSakit = lastUnderscore > -1 ? roomId.substring(0, lastUnderscore) : "";
 
-    const userResult = await db.query('SELECT * FROM "user" WHERE id = $1', [
+    const userResult = await db.query("SELECT * FROM patients WHERE id = $1", [
       userId,
     ]);
     const user = userResult.rows[0];
@@ -184,7 +184,7 @@ app.get("/admin", requireAdmin, async (req, res) => {
     const rumahSakit = req.session.adminRumahSakit;
     // Only get users (patients) for this admin's hospital
     const usersResult = await db.query(
-      'SELECT * FROM "user" WHERE rumah_sakit = $1 ORDER BY id ASC',
+      "SELECT * FROM patients WHERE rumah_sakit = $1 ORDER BY id ASC",
       [rumahSakit]
     );
     const rooms = [];
@@ -237,7 +237,7 @@ app.get("/admin/room/:roomId", requireAdmin, async (req, res) => {
     const lastUnderscore = roomId.lastIndexOf("_");
     const userId = lastUnderscore > -1 ? roomId.substring(lastUnderscore + 1) : roomId;
 
-    const userResult = await db.query('SELECT * FROM "user" WHERE id = $1', [
+    const userResult = await db.query("SELECT * FROM patients WHERE id = $1", [
       userId,
     ]);
     const messagesResult = await db.query(
@@ -304,7 +304,7 @@ app.get("/api/rooms", requireAdmin, async (req, res) => {
   try {
     const rumahSakit = req.session.adminRumahSakit;
     const usersResult = await db.query(
-      'SELECT * FROM "user" WHERE rumah_sakit = $1 ORDER BY id ASC',
+      "SELECT * FROM patients WHERE rumah_sakit = $1 ORDER BY id ASC",
       [rumahSakit]
     );
     const rooms = [];
