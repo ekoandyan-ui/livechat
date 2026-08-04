@@ -29,6 +29,8 @@
     .chat-input button { background: #e94560; border: none; color: #fff; padding: 12px 25px; border-radius: 8px; font-weight: 600; cursor: pointer; }
     .chat-input button:hover { background: #c73650; }
     .no-msg { text-align: center; color: #808090; padding: 60px 20px; font-size: 14px; }
+    .delete-all-btn { background: #e94560; border: none; color: #fff; font-size: 12px; padding: 6px 12px; border-radius: 8px; cursor: pointer; font-weight: 600; }
+    .delete-all-btn:hover { background: #c73650; }
   </style>
 </head>
 <body>
@@ -40,7 +42,13 @@
         <span>ID: <%= roomId %> <% if (user) { %> | <%= user.kelas %> | <%= user.rumah_sakit %><% } %></span>
       </div>
     </div>
-    <span class="admin-badge"><%= adminRumahSakit %></span>
+    <div style="display:flex; align-items:center; gap:10px;">
+      <span class="admin-badge"><%= adminRumahSakit %></span>
+      <form method="POST" action="/admin/patient/delete" style="margin:0;" onsubmit="return confirm('Hapus total chat pasien ini? Semua pesan akan dihapus dan pasien akan kembali ke form pendaftaran awal.')">
+        <input type="hidden" name="patientId" value="<%= user ? user.id : '' %>" />
+        <button type="submit" class="delete-all-btn">Hapus Total Chat</button>
+      </form>
+    </div>
   </div>
 
   <div class="chat-messages" id="chatMessages">

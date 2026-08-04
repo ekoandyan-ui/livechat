@@ -130,11 +130,16 @@ app.get("/chat/:roomId", async (req, res) => {
     const userId = lastUnderscore > -1 ? roomId.substring(lastUnderscore + 1) : roomId;
     const rumahSakit = lastUnderscore > -1 ? roomId.substring(0, lastUnderscore) : "";
 
+    // Jika ID pasien tidak valid, kembali ke form pendaftaran
+    if (!/^\d+$/.test(userId)) return res.redirect("/");
+
     const userResult = await db.query("SELECT * FROM patients WHERE id = $1", [
       userId,
     ]);
     const user = userResult.rows[0];
-    const userName = user ? user.nama : "Anonim";
+
+    // Jika pasien sudah dihapus admin (total chat dihapus), otomatis kembali ke form awal
+    if (!user) return res.redirect("/");
 
     const msgResult = await db.query(
       "SELECT * FROM messages WHERE room_id = $1 ORDER BY created_at ASC LIMIT 200",
@@ -143,7 +148,8 @@ app.get("/chat/:roomId", async (req, res) => {
 
     res.render("chat", {
       roomId,
-      userName,
+      userName: user.nama,
+      kelas: user.kelas,
       rumahSakit,
       messages: msgResult.rows,
     });
@@ -284,6 +290,32 @@ app.post("/admin/message/delete", requireAdmin, async (req, res) => {
 });
 
 // =============================================
+// ROUTE: Admin - Hapus Total Chat Pasien (pasien + semua pesan)
+// =============================================
+app.post("/admin/patient/delete", requireAdmin, async (req, res) => {
+  const { patientId } = req.body;
+  const rumahSakit = req.session.adminRumahSakit;
+  try {
+    const userResult = await db.query("SELECT * FROM patients WHERE id = $1", [patientId]);
+    const user = userResult.rows[0];
+    if (!user) return res.status(404).send("Pasien tidak ditemukan.");
+    if (user.rumah_sakit !== rumahSakit) return res.status(403).send("Akses ditolak: Room ini bukan milik rumah sakit Anda.");
+
+    const roomId = `${user.rumah_sakit}_${user.id}`;
+    await db.query("DELETE FROM messages WHERE room_id = $1", [roomId]);
+    await db.query("DELETE FROM patients WHERE id = $1", [patientId]);
+
+    // Beri tahu pasien di room tersebut agar otomatis kembali ke form awal
+    io.to(roomId).emit("chat-deleted");
+
+    res.redirect("/admin");
+  } catch (err) {
+    console.error("Error hapus total chat:", err.message);
+    res.redirect("/admin");
+  }
+});
+
+// =============================================
 // API: Ambil pesan per room (untuk auto-refresh)
 // =============================================
 app.get("/api/messages/:roomId", async (req, res) => {
@@ -302,6 +334,22 @@ app.get("/api/messages/:roomId", async (req, res) => {
     }
     const result = await db.query(query, params);
     res.json({ messages: result.rows });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// =============================================
+// API: Cek apakah pasien (room) masih ada (untuk resume chat)
+// =============================================
+app.get("/api/patient-exists/:roomId", async (req, res) => {
+  const roomId = req.params.roomId;
+  try {
+    const lastUnderscore = roomId.lastIndexOf("_");
+    const userId = lastUnderscore > -1 ? roomId.substring(lastUnderscore + 1) : roomId;
+    if (!/^\d+$/.test(userId)) return res.json({ exists: false });
+    const result = await db.query("SELECT id FROM patients WHERE id = $1", [userId]);
+    res.json({ exists: result.rows.length > 0 });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

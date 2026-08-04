@@ -69,10 +69,44 @@
     const socket = io();
     const roomId = '<%= roomId %>';
     const myName = '<%= userName %>';
+    const myKelas = '<%= kelas %>';
+    const myRumahSakit = '<%= rumahSakit %>';
     const chatMessages = document.getElementById('chatMessages');
     const msgInput = document.getElementById('msgInput');
     const sendBtn = document.getElementById('sendBtn');
     const onlineBadge = document.getElementById('onlineBadge');
+
+    const SESSION_KEY = 'dinkes_chat_session';
+
+    // Simpan data chat pasien agar tetap tersimpan saat refresh/keluar browser
+    function saveSession() {
+      const data = {
+        roomId,
+        userName: myName,
+        kelas: myKelas,
+        rumahSakit: myRumahSakit,
+        savedAt: Date.now(),
+      };
+      localStorage.setItem(SESSION_KEY, JSON.stringify(data));
+    }
+    saveSession();
+
+    // Jika admin menghapus total chat, otomatis kembali ke form pendaftaran
+    function handleChatDeleted() {
+      localStorage.removeItem(SESSION_KEY);
+      window.location.href = '/';
+    }
+
+    socket.on('chat-deleted', handleChatDeleted);
+
+    // Pengecekan berkala: jika pasien dihapus saat socket tidak tersambung
+    setInterval(async () => {
+      try {
+        const res = await fetch('/api/patient-exists/' + encodeURIComponent(roomId));
+        const data = await res.json();
+        if (data && data.exists === false) handleChatDeleted();
+      } catch (err) {}
+    }, 20000);
 
     socket.emit('join-room', roomId);
 
