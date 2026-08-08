@@ -44,8 +44,8 @@
   <div class="chat-header">
     <div>
       <h5>ROOM: <%= userName %></h5>
-      <span class="room-label">ID Room: <%= roomId %></span>
-      <div class="hospital-tag"><%= rumahSakit %></div>
+      <span class="room-label">ID Room: <%= roomId %> | <%= alamat %></span>
+      <div class="hospital-tag"><%= rumahSakit %> | WA: <%= nomorWa %></div>
     </div>
     <span class="online-badge" id="onlineBadge">Online</span>
   </div>
@@ -79,7 +79,8 @@
     const socket = io();
     const roomId = '<%= roomId %>';
     const myName = '<%= userName %>';
-    const myKelas = '<%= kelas %>';
+    const myAlamat = '<%= alamat %>';
+    const myNomorWa = '<%= nomorWa %>';
     const myRumahSakit = '<%= rumahSakit %>';
     const chatMessages = document.getElementById('chatMessages');
     const msgInput = document.getElementById('msgInput');
@@ -93,7 +94,8 @@
       const data = {
         roomId,
         userName: myName,
-        kelas: myKelas,
+        alamat: myAlamat,
+        nomorWa: myNomorWa,
         rumahSakit: myRumahSakit,
         savedAt: Date.now(),
       };

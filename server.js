@@ -102,13 +102,13 @@ app.get("/", (req, res) => {
 // =============================================
 app.post("/tambah", async (req, res) => {
   try {
-    const { nama, kelas, rumah_sakit } = req.body;
+    const { nama, alamat, nomor_wa, rumah_sakit } = req.body;
     if (!rumah_sakit || !RUMAH_SAKIT_LIST.includes(rumah_sakit)) {
       return res.status(400).send("Rumah sakit tidak valid.");
     }
     const result = await db.query(
-      'INSERT INTO patients (nama, kelas, rumah_sakit) VALUES ($1, $2, $3) RETURNING id',
-      [nama, kelas, rumah_sakit]
+      'INSERT INTO patients (nama, alamat, nomor_wa, rumah_sakit) VALUES ($1, $2, $3, $4) RETURNING id',
+      [nama, alamat, nomor_wa, rumah_sakit]
     );
     const newUserId = result.rows[0].id;
     const roomId = `${rumah_sakit}_${newUserId}`;
@@ -149,7 +149,8 @@ app.get("/chat/:roomId", async (req, res) => {
     res.render("chat", {
       roomId,
       userName: user.nama,
-      kelas: user.kelas,
+      alamat: user.alamat,
+      nomorWa: user.nomor_wa,
       rumahSakit,
       messages: msgResult.rows,
     });
@@ -218,7 +219,8 @@ app.get("/admin", requireAdmin, async (req, res) => {
       rooms.push({
         id: user.id,
         nama: user.nama,
-        kelas: user.kelas,
+        alamat: user.alamat,
+        nomor_wa: user.nomor_wa,
         rumah_sakit: user.rumah_sakit,
         roomId: room_id,
         totalPesan: parseInt(msgCount.rows[0].total),
@@ -375,7 +377,8 @@ app.get("/api/rooms", requireAdmin, async (req, res) => {
       rooms.push({
         id: user.id,
         nama: user.nama,
-        kelas: user.kelas,
+        alamat: user.alamat,
+        nomor_wa: user.nomor_wa,
         roomId: room_id,
         totalPesan: parseInt(msgCount.rows[0].total),
       });

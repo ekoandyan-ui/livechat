@@ -78,7 +78,7 @@
         <a href="/admin/room/<%= room.id %>" class="room-item">
           <span class="room-badge"><%= room.totalPesan %></span>
           <div class="room-name"><%= room.nama %></div>
-          <div class="room-meta">ID: <%= room.id %> | <%= room.kelas %></div>
+          <div class="room-meta">ID: <%= room.id %> | WA: <%= room.nomor_wa %></div>
           <% if (room.lastMessage) { %>
             <div class="last-msg"><%= room.lastMessage.sender_name %>: <%= room.lastMessage.message %></div>
           <% } else { %>

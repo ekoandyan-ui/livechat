@@ -71,7 +71,7 @@
       <a href="/admin" class="back-btn">&larr; Kembali</a>
       <div class="room-info">
         <h5><%= user ? user.nama : 'Room ' + roomId %></h5>
-        <span>ID: <%= roomId %> <% if (user) { %> | <%= user.kelas %> | <%= user.rumah_sakit %><% } %></span>
+        <span>ID: <%= roomId %> <% if (user) { %> | <%= user.alamat %> | WA: <%= user.nomor_wa %><% } %></span>
       </div>
     </div>
     <div style="display:flex; align-items:center; gap:10px;">

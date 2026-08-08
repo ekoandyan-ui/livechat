@@ -7,13 +7,16 @@
 CREATE TABLE IF NOT EXISTS patients (
   id SERIAL PRIMARY KEY,
   nama TEXT NOT NULL,
-  kelas TEXT NOT NULL,
+  alamat TEXT NOT NULL DEFAULT '',
+  nomor_wa TEXT NOT NULL DEFAULT '',
   rumah_sakit TEXT NOT NULL,
   created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
--- Jika tabel sudah ada tanpa kolom rumah_sakit, jalankan ini:
--- ALTER TABLE patients ADD COLUMN IF NOT EXISTS rumah_sakit TEXT NOT NULL DEFAULT '';
+-- Jika tabel sudah ada, jalankan ini untuk menambah kolom alamat & nomor WA:
+-- ALTER TABLE patients ADD COLUMN IF NOT EXISTS alamat TEXT NOT NULL DEFAULT '';
+-- ALTER TABLE patients ADD COLUMN IF NOT EXISTS nomor_wa TEXT NOT NULL DEFAULT '';
+-- (opsional hapus kolom kelas: ALTER TABLE patients DROP COLUMN IF EXISTS kelas;)
 
 -- 2. Tabel messages untuk menyimpan chat secara permanen
 CREATE TABLE IF NOT EXISTS messages (
