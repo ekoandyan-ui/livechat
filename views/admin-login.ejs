@@ -6,19 +6,29 @@
   <title>Admin Login - Live Chat</title>
   <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet" />
   <style>
-    body { background: #1a1a2e; min-height: 100vh; display: flex; align-items: center; justify-content: center; }
-    .login-card { background: #16213e; border-radius: 12px; padding: 40px; width: 100%; max-width: 400px; box-shadow: 0 8px 32px rgba(0,0,0,0.3); }
-    .login-card h2 { color: #e94560; text-align: center; margin-bottom: 5px; font-weight: 700; }
-    .login-card .subtitle { color: #a0a0b0; text-align: center; font-size: 13px; margin-bottom: 25px; }
-    .form-control { background: #0f3460; border: 1px solid #1a1a4e; color: #fff; padding: 12px; }
-    .form-control:focus { background: #0f3460; color: #fff; border-color: #e94560; box-shadow: none; }
-    .form-label { color: #a0a0b0; font-size: 14px; }
-    .btn-login { background: #e94560; border: none; padding: 12px; font-weight: 600; width: 100%; margin-top: 10px; }
-    .btn-login:hover { background: #c73650; }
+    :root {
+      --primary: #0ea5e9;
+      --primary-dark: #0284c7;
+      --primary-light: #e0f2fe;
+      --bg: #f8fafc;
+      --surface: #ffffff;
+      --text: #0f172a;
+      --subtle: #64748b;
+      --border: rgba(0, 0, 0, 0.1);
+    }
+    body { background: var(--bg); min-height: 100vh; display: flex; align-items: center; justify-content: center; }
+    .login-card { background: var(--surface); border-radius: 12px; padding: 40px; width: 100%; max-width: 400px; box-shadow: 0 8px 32px rgba(0, 0, 0, 0.1); border: 1px solid var(--border); }
+    .login-card h2 { color: var(--primary); text-align: center; margin-bottom: 5px; font-weight: 700; }
+    .login-card .subtitle { color: var(--subtle); text-align: center; font-size: 13px; margin-bottom: 25px; }
+    .form-control { background: var(--surface); border: 1px solid var(--border); color: var(--text); padding: 12px; }
+    .form-control:focus { background: var(--surface); color: var(--text); border-color: var(--primary); box-shadow: none; }
+    .form-label { color: var(--text); font-size: 14px; }
+    .btn-login { background: var(--primary); border: none; padding: 12px; font-weight: 600; width: 100%; margin-top: 10px; }
+    .btn-login:hover { background: var(--primary-dark); }
     .alert { font-size: 14px; }
     .back-link { text-align: center; margin-top: 15px; }
-    .back-link a { color: #a0a0b0; text-decoration: none; font-size: 13px; }
-    .back-link a:hover { color: #e94560; }
+    .back-link a { color: var(--subtle); text-decoration: none; font-size: 13px; }
+    .back-link a:hover { color: var(--primary); }
   </style>
 </head>
 <body>
@@ -37,7 +47,7 @@
         <label class="form-label">Password</label>
         <input type="password" name="password" class="form-control" placeholder="Masukkan password" required />
       </div>
-      <button type="submit" class="btn btn-login btn-danger">MASUK</button>
+      <button type="submit" class="btn btn-login">MASUK</button>
     </form>
     <div class="back-link">
       <a href="/">&larr; Kembali ke Halaman Utama</a>
