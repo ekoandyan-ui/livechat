@@ -39,6 +39,23 @@
     .btn-continue:hover { background: var(--primary-dark); transform: translateY(-1px); }
     .btn-new { background: var(--bg); border: 1px solid var(--border); color: var(--text); font-weight: 600; padding: 12px; border-radius: 10px; width: 100%; font-size: 15px; transition: all 0.2s ease-in-out; }
     .btn-new:hover { color: var(--primary); border-color: var(--primary); }
+
+    @media (max-width: 576px) {
+      body { padding: 12px; justify-content: flex-start; }
+      .main-card { padding: 24px 18px; border-radius: 14px; box-shadow: none; }
+      .main-card h3 { font-size: 20px; }
+      .main-card p.subtitle { font-size: 13px; margin-bottom: 20px; }
+      .form-label { font-size: 13px; }
+      .form-control, .form-select { padding: 11px 12px; font-size: 16px; }
+      .btn-tambah { padding: 13px; font-size: 15px; }
+      .top-links { top: 12px; right: 12px; }
+      .top-links a { font-size: 12px; padding: 5px 11px; }
+      .overlay { padding: 15px; }
+      .overlay-card { padding: 26px 18px; border-radius: 14px; }
+      .overlay-card h3 { font-size: 19px; }
+      .overlay-card p { font-size: 13px; }
+      .btn-continue, .btn-new { padding: 12px; font-size: 14px; }
+    }
   </style>
 </head>
 <body>

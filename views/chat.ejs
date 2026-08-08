@@ -38,6 +38,32 @@
     .chat-input button { background: var(--primary); border: none; color: #fff; padding: 12px 25px; border-radius: 8px; font-weight: 600; cursor: pointer; }
     .chat-input button:hover { background: var(--primary-dark); }
     .admin-msg { border-left: 3px solid var(--primary); }
+
+    @media (max-width: 768px) {
+      .chat-header { padding: 12px 15px; gap: 8px; }
+      .chat-header h5 { font-size: 16px; }
+      .chat-messages { padding: 15px; }
+      .msg { max-width: 85%; }
+      .chat-input { padding: 12px 15px; }
+      .chat-input input { padding: 11px 12px; font-size: 13px; }
+      .chat-input button { padding: 11px 18px; }
+    }
+
+    @media (max-width: 576px) {
+      .chat-header { padding: 10px 12px; align-items: flex-start; }
+      .chat-header h5 { font-size: 15px; }
+      .chat-header .room-label { font-size: 11px; word-break: break-word; }
+      .chat-header .hospital-tag { font-size: 11px; padding: 3px 8px; margin-top: 3px; }
+      .online-badge { font-size: 11px; padding: 3px 8px; }
+      .chat-messages { padding: 12px; }
+      .msg { max-width: 92%; margin-bottom: 12px; }
+      .msg .msg-bubble { padding: 9px 12px; font-size: 14px; }
+      .msg .msg-meta { font-size: 10px; }
+      .chat-input { padding: 10px 12px; gap: 8px; }
+      .chat-input input { padding: 11px 12px; font-size: 16px; }
+      .chat-input button { padding: 11px 16px; font-size: 14px; }
+      .no-msg { padding: 40px 15px; font-size: 13px; }
+    }
   </style>
 </head>
 <body>
