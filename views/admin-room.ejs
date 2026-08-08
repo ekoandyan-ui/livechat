@@ -31,6 +31,28 @@
     .no-msg { text-align: center; color: #808090; padding: 60px 20px; font-size: 14px; }
     .delete-all-btn { background: #e94560; border: none; color: #fff; font-size: 12px; padding: 6px 12px; border-radius: 8px; cursor: pointer; font-weight: 600; }
     .delete-all-btn:hover { background: #c73650; }
+
+    @media (max-width: 768px) {
+      .chat-header { padding: 12px 15px; flex-wrap: wrap; gap: 8px; }
+      .chat-header .room-info span { display: block; margin-top: 2px; }
+      .admin-badge { display: none; }
+      .chat-messages { padding: 15px; }
+      .msg { max-width: 85%; }
+      .chat-input { padding: 12px 15px; }
+      .chat-input input { padding: 11px 12px; font-size: 13px; }
+      .chat-input button { padding: 11px 18px; }
+      .delete-all-btn { font-size: 11px; padding: 5px 10px; }
+    }
+
+    @media (max-width: 576px) {
+      .chat-header { flex-direction: column; align-items: flex-start; }
+      .chat-header > div:last-child { width: 100%; justify-content: space-between; }
+      .chat-header .back-btn { margin-right: 8px; font-size: 14px; }
+      .chat-header .room-info h5 { font-size: 16px; }
+      .msg { max-width: 90%; }
+      .chat-input button { padding: 11px 14px; }
+      .no-msg { padding: 40px 15px; }
+    }
   </style>
 </head>
 <body>

@@ -26,10 +26,34 @@
     .welcome-box h2 { color: #e94560; margin-bottom: 8px; }
     .welcome-box .hospital-name { color: #a0a0b0; font-size: 16px; margin-bottom: 15px; }
     .welcome-box p { color: #a0a0b0; }
-    .stats { display: flex; gap: 20px; margin-top: 30px; justify-content: center; }
+    .stats { display: flex; gap: 20px; margin-top: 30px; justify-content: center; flex-wrap: wrap; }
     .stat-card { background: #0f3460; border-radius: 10px; padding: 20px 30px; text-align: center; }
     .stat-card .stat-num { font-size: 36px; font-weight: 700; color: #e94560; }
     .stat-card .stat-label { color: #a0a0b0; font-size: 13px; margin-top: 5px; }
+
+    @media (max-width: 992px) {
+      .sidebar { width: 300px; }
+      .main-content { margin-left: 300px; padding: 20px; }
+      .welcome-box { padding: 30px; }
+      .stat-card { padding: 15px 22px; }
+    }
+
+    @media (max-width: 768px) {
+      .sidebar { width: 260px; }
+      .main-content { margin-left: 260px; padding: 15px; }
+      .stats { flex-direction: column; align-items: center; gap: 12px; }
+      .stat-card { width: 100%; max-width: 260px; }
+      .welcome-box h2 { font-size: 20px; }
+    }
+
+    @media (max-width: 576px) {
+      .sidebar { width: 100%; position: static; min-height: 100vh; border-right: none; }
+      .main-content { display: none; }
+      .sidebar-header h4 { font-size: 16px; }
+      .sidebar-header { padding: 15px; }
+      .room-list { padding: 8px; }
+      .room-item { padding: 13px; }
+    }
   </style>
 </head>
 <body>
