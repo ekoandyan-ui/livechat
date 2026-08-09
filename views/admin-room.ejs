@@ -17,13 +17,13 @@
       --border: rgba(0, 0, 0, 0.1);
     }
     * { margin: 0; padding: 0; box-sizing: border-box; }
-    body { background: var(--bg); color: var(--text); font-family: 'Segoe UI', sans-serif; height: 100vh; height: 100dvh; display: flex; flex-direction: column; }
-    .chat-header { background: var(--surface); padding: 15px 25px; border-bottom: 1px solid var(--border); display: flex; align-items: center; justify-content: space-between; }
+    body { background: var(--bg); color: var(--text); font-family: 'Segoe UI', sans-serif; height: 100vh; height: 100dvh; overflow: hidden; }
+    .chat-header { background: var(--surface); padding: 15px 25px; border-bottom: 1px solid var(--border); display: flex; align-items: center; justify-content: space-between; position: fixed; top: 0; left: 0; right: 0; z-index: 10; }
     .chat-header .back-btn { color: var(--primary); text-decoration: none; font-weight: 600; margin-right: 15px; }
     .chat-header .room-info h5 { margin: 0; color: var(--text); }
     .chat-header .room-info span { color: var(--subtle); font-size: 13px; }
     .admin-badge { background: var(--primary-light); color: var(--primary); font-size: 11px; padding: 3px 10px; border-radius: 20px; font-weight: 600; }
-    .chat-messages { flex: 1; overflow-y: auto; padding: 20px 25px; }
+    .chat-messages { position: fixed; left: 0; right: 0; overflow-y: auto; -webkit-overflow-scrolling: touch; padding: 20px 25px; }
     .msg { margin-bottom: 15px; max-width: 75%; }
     .msg-admin { margin-left: auto; }
     .msg .msg-bubble { padding: 10px 15px; border-radius: 12px; font-size: 14px; line-height: 1.5; word-wrap: break-word; }
@@ -33,7 +33,7 @@
     .msg-admin .msg-meta { text-align: right; }
     .msg .delete-btn { background: none; border: none; color: var(--subtle); font-size: 11px; cursor: pointer; margin-left: 8px; }
     .msg .delete-btn:hover { color: var(--primary); }
-    .chat-input { background: var(--surface); padding: 15px 25px; border-top: 1px solid var(--border); display: flex; gap: 10px; }
+    .chat-input { background: var(--surface); padding: 15px 25px; border-top: 1px solid var(--border); display: flex; gap: 10px; position: fixed; bottom: 0; left: 0; right: 0; z-index: 10; }
     .chat-input input { flex: 1; background: var(--bg); border: 1px solid var(--border); color: var(--text); padding: 12px 15px; border-radius: 8px; font-size: 14px; }
     .chat-input input:focus { outline: none; border-color: var(--primary); }
     .chat-input button { background: var(--primary); border: none; color: #fff; padding: 12px 25px; border-radius: 8px; font-weight: 600; cursor: pointer; }
@@ -120,21 +120,25 @@
     const msgInput = document.getElementById('msgInput');
     const sendBtn = document.getElementById('sendBtn');
 
-    // Fix: input chat selalu menyesuaikan di atas keyboard HP (semua browser)
-    function fixViewportHeight() {
+    // Fix: input chat selalu menyesuaikan tepat di atas keyboard HP (semua browser)
+    const headerEl = document.querySelector('.chat-header');
+    const inputEl = document.querySelector('.chat-input');
+    function updateChatLayout() {
+      let gap = 0;
       if (window.visualViewport) {
-        document.body.style.height = window.visualViewport.height + 'px';
-      } else {
-        document.body.style.height = window.innerHeight + 'px';
+        const vv = window.visualViewport;
+        gap = Math.max(0, window.innerHeight - (vv.offsetTop + vv.height));
       }
+      inputEl.style.bottom = gap + 'px';
+      chatMessages.style.top = headerEl.offsetHeight + 'px';
+      chatMessages.style.bottom = (inputEl.offsetHeight + gap) + 'px';
     }
     if (window.visualViewport) {
-      window.visualViewport.addEventListener('resize', () => { fixViewportHeight(); scrollToBottom(); });
-      window.visualViewport.addEventListener('scroll', fixViewportHeight);
-    } else {
-      window.addEventListener('resize', () => { fixViewportHeight(); scrollToBottom(); });
+      window.visualViewport.addEventListener('resize', () => { updateChatLayout(); scrollToBottom(); });
+      window.visualViewport.addEventListener('scroll', () => { updateChatLayout(); scrollToBottom(); });
     }
-    fixViewportHeight();
+    window.addEventListener('resize', () => { updateChatLayout(); scrollToBottom(); });
+    updateChatLayout();
 
     socket.emit('join-room', roomId);
 
