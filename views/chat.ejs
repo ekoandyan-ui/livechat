@@ -17,7 +17,7 @@
       --border: rgba(0, 0, 0, 0.1);
     }
     * { margin: 0; padding: 0; box-sizing: border-box; }
-    body { background: var(--bg); color: var(--text); font-family: 'Segoe UI', sans-serif; height: 100vh; display: flex; flex-direction: column; }
+    body { background: var(--bg); color: var(--text); font-family: 'Segoe UI', sans-serif; height: 100vh; height: 100dvh; display: flex; flex-direction: column; }
     .chat-header { background: var(--surface); padding: 15px 25px; border-bottom: 1px solid var(--border); display: flex; align-items: center; justify-content: space-between; }
     .chat-header h5 { margin: 0; }
     .chat-header .room-label { color: var(--subtle); font-size: 13px; }
@@ -112,6 +112,22 @@
     const msgInput = document.getElementById('msgInput');
     const sendBtn = document.getElementById('sendBtn');
     const onlineBadge = document.getElementById('onlineBadge');
+
+    // Fix: input chat selalu menyesuaikan di atas keyboard HP (semua browser)
+    function fixViewportHeight() {
+      if (window.visualViewport) {
+        document.body.style.height = window.visualViewport.height + 'px';
+      } else {
+        document.body.style.height = window.innerHeight + 'px';
+      }
+    }
+    if (window.visualViewport) {
+      window.visualViewport.addEventListener('resize', () => { fixViewportHeight(); scrollToBottom(); });
+      window.visualViewport.addEventListener('scroll', fixViewportHeight);
+    } else {
+      window.addEventListener('resize', () => { fixViewportHeight(); scrollToBottom(); });
+    }
+    fixViewportHeight();
 
     const SESSION_KEY = 'dinkes_chat_session';
 
