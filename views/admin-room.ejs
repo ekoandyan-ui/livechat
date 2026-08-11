@@ -20,9 +20,8 @@
     body { background: var(--bg); color: var(--text); font-family: 'Segoe UI', sans-serif; height: 100vh; height: 100dvh; overflow: hidden; }
     .chat-header { background: var(--surface); padding: 15px 25px; border-bottom: 1px solid var(--border); display: flex; align-items: center; justify-content: space-between; position: fixed; top: 0; left: 0; right: 0; z-index: 10; }
     .chat-header .back-btn { color: var(--primary); text-decoration: none; font-weight: 600; margin-right: 15px; }
-    .chat-header .room-info h5 { margin: 0; color: var(--text); }
-    .chat-header .room-info span { color: var(--subtle); font-size: 13px; }
-    .admin-badge { background: var(--primary-light); color: var(--primary); font-size: 11px; padding: 3px 10px; border-radius: 20px; font-weight: 600; }
+    .chat-header .patient-name { color: var(--text); font-size: 16px; font-weight: 600; text-decoration: none; border-bottom: 2px dashed var(--primary); }
+    .chat-header .patient-name:hover { color: var(--primary); }
     .chat-messages { position: fixed; left: 0; right: 0; overflow-y: auto; -webkit-overflow-scrolling: touch; padding: 20px 25px; }
     .msg { margin-bottom: 15px; max-width: 75%; }
     .msg-admin { margin-left: auto; }
@@ -39,26 +38,20 @@
     .chat-input button { background: var(--primary); border: none; color: #fff; padding: 12px 25px; border-radius: 8px; font-weight: 600; cursor: pointer; }
     .chat-input button:hover { background: var(--primary-dark); }
     .no-msg { text-align: center; color: var(--subtle); padding: 60px 20px; font-size: 14px; }
-    .delete-all-btn { background: var(--primary); border: none; color: #fff; font-size: 12px; padding: 6px 12px; border-radius: 8px; cursor: pointer; font-weight: 600; }
-    .delete-all-btn:hover { background: var(--primary-dark); }
 
     @media (max-width: 768px) {
       .chat-header { padding: 12px 15px; flex-wrap: wrap; gap: 8px; }
-      .chat-header .room-info span { display: block; margin-top: 2px; }
-      .admin-badge { display: none; }
       .chat-messages { padding: 15px; }
       .msg { max-width: 85%; }
       .chat-input { padding: 12px 15px; }
       .chat-input input { padding: 11px 12px; font-size: 13px; }
       .chat-input button { padding: 11px 18px; }
-      .delete-all-btn { font-size: 11px; padding: 5px 10px; }
     }
 
     @media (max-width: 576px) {
-      .chat-header { flex-direction: column; align-items: flex-start; }
-      .chat-header > div:last-child { width: 100%; justify-content: space-between; }
+      .chat-header { padding: 10px 12px; gap: 8px; }
       .chat-header .back-btn { margin-right: 8px; font-size: 14px; }
-      .chat-header .room-info h5 { font-size: 16px; }
+      .chat-header .patient-name { font-size: 14px; }
       .msg { max-width: 90%; }
       .chat-input input { font-size: 16px; }
       .chat-input button { padding: 11px 14px; }
@@ -70,17 +63,7 @@
   <div class="chat-header">
     <div style="display:flex; align-items:center;">
       <a href="/admin" class="back-btn">&larr; Kembali</a>
-      <div class="room-info">
-        <h5><%= user ? user.nama : 'Room ' + roomId %></h5>
-        <span>ID: <%= roomId %> <% if (user) { %> | <%= user.alamat %> | WA: <%= user.nomor_wa %><% } %></span>
-      </div>
-    </div>
-    <div style="display:flex; align-items:center; gap:10px;">
-      <span class="admin-badge"><%= adminRumahSakit %></span>
-      <form method="POST" action="/admin/patient/delete" style="margin:0;" onsubmit="return confirm('Hapus total chat pasien ini? Semua pesan akan dihapus dan pasien akan kembali ke form pendaftaran awal.')">
-        <input type="hidden" name="patientId" value="<%= user ? user.id : '' %>" />
-        <button type="submit" class="delete-all-btn">Hapus Total Chat</button>
-      </form>
+      <a href="/admin/patient/<%= user ? user.id : roomId %>" class="patient-name"><%= user ? user.nama : 'Room ' + roomId %></a>
     </div>
   </div>
 

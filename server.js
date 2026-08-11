@@ -278,6 +278,35 @@ app.get("/admin/room/:patientId", requireAdmin, async (req, res) => {
 });
 
 // =============================================
+// ROUTE: Admin - Detail Data Pasien (hospital-scoped)
+// =============================================
+app.get("/admin/patient/:patientId", requireAdmin, async (req, res) => {
+  const patientId = parseInt(req.params.patientId, 10);
+  const rumahSakit = req.session.adminRumahSakit;
+  try {
+    const userResult = await db.query("SELECT * FROM patients WHERE id = $1", [patientId]);
+    const user = userResult.rows[0];
+
+    if (!user) {
+      return res.status(404).send("Pasien tidak ditemukan.");
+    }
+
+    if (user.rumah_sakit !== rumahSakit) {
+      return res.status(403).send("Akses ditolak: Data ini bukan milik rumah sakit Anda.");
+    }
+
+    res.render("admin-patient", {
+      user,
+      adminUser: req.session.adminUser,
+      adminRumahSakit: rumahSakit,
+    });
+  } catch (err) {
+    console.error("Error admin patient detail:", err.message);
+    res.status(500).send("Gagal memuat data pasien.");
+  }
+});
+
+// =============================================
 // ROUTE: Admin - Hapus Pesan
 // =============================================
 app.post("/admin/message/delete", requireAdmin, async (req, res) => {
