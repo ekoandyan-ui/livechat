@@ -12,9 +12,9 @@
   .ct-composer input { flex: 1; min-width: 0; background: transparent; border: none; padding: 9px 0; font-size: 14px; color: var(--text); }
   .ct-composer input:focus { outline: none; border: none; box-shadow: none; }
 
-  /* Ikon garis minimalis tanpa background */
-  .ct-tool { flex: 0 0 auto; display: inline-flex; align-items: center; justify-content: center; width: 32px; height: 32px; background: transparent; border: none; padding: 0; color: var(--subtle); cursor: pointer; border-radius: 50%; transition: color .15s ease-in-out, background .15s ease-in-out; }
-  .ct-tool:hover, .ct-tool.active { color: var(--primary); background: rgba(14,165,233,.1); }
+  /* Ikon garis minimalis tanpa background (gaya Noun Project) */
+  .ct-tool { flex: 0 0 auto; display: inline-flex; align-items: center; justify-content: center; width: 32px; height: 32px; background: none; border: none; padding: 0; color: var(--text); cursor: pointer; transition: color .15s ease-in-out; }
+  .ct-tool:hover, .ct-tool.active { color: var(--primary); }
   .ct-tool svg { width: 21px; height: 21px; fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; }
 
   .ct-panel { position: absolute; bottom: calc(100% + 8px); right: 0; background: var(--surface); border: 1px solid var(--border); border-radius: 12px; box-shadow: 0 10px 30px rgba(0,0,0,.15); z-index: 50; }
@@ -32,18 +32,6 @@
   .ct-uploading .ct-spinner { width: 16px; height: 16px; border: 2px solid var(--primary-light); border-top-color: var(--primary); border-radius: 50%; animation: ct-spin .8s linear infinite; flex: 0 0 auto; }
   .ct-uploading .ct-u-text { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   @keyframes ct-spin { to { transform: rotate(360deg); } }
-
-  /* Modal kamera (akses kamera langsung dari device) */
-  .ct-camera-modal { position: fixed; inset: 0; background: rgba(15,23,42,.9); z-index: 1000; display: flex; align-items: center; justify-content: center; padding: 20px; }
-  .ct-camera-modal[hidden] { display: none; }
-  .ct-camera-box { background: #000; border-radius: 16px; overflow: hidden; max-width: 520px; width: 100%; position: relative; }
-  .ct-camera-box video { width: 100%; display: block; max-height: 70vh; object-fit: contain; background: #000; }
-  .ct-camera-controls { display: flex; justify-content: center; align-items: center; gap: 28px; padding: 14px; }
-  .ct-cam-btn { width: 54px; height: 54px; border-radius: 50%; border: 2px solid rgba(255,255,255,.9); background: rgba(255,255,255,.12); color: #fff; display: inline-flex; align-items: center; justify-content: center; cursor: pointer; transition: background .15s; }
-  .ct-cam-btn:hover { background: rgba(255,255,255,.28); }
-  .ct-cam-btn svg { width: 24px; height: 24px; fill: none; stroke: #fff; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
-  .ct-cam-btn-sm { width: 46px; height: 46px; }
-  .ct-camera-error { padding: 30px; color: #fff; text-align: center; font-size: 14px; }
 
   /* Tampilan lampiran di dalam gelembung pesan */
   .chat-file { display: block; }
@@ -84,7 +72,7 @@
   <!-- Input tersembunyi untuk membuka keyboard emoji bawaan HP -->
   <input type="text" class="ct-emoji-input" id="ctEmojiInput" inputmode="emoji" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" />
 
-  <!-- Input file fallback (jika kamera browser tidak tersedia / ditolak) -->
+  <!-- Membuka kamera default bawaan perangkat (Android/iOS) -->
   <input type="file" id="ctFileCamera" accept="image/*" capture="environment" hidden />
   <input type="file" id="ctFileGallery" accept="image/*,video/*" hidden />
   <input type="file" id="ctFileDoc" accept=".pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.csv,.zip,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document" hidden />
@@ -116,24 +104,6 @@
   </div>
 </div>
 
-<!-- Modal kamera -->
-<div class="ct-camera-modal" id="ctCameraModal" hidden>
-  <div class="ct-camera-box">
-    <video id="ctCameraVideo" autoplay playsinline muted></video>
-    <div class="ct-camera-controls">
-      <button type="button" class="ct-cam-btn ct-cam-btn-sm" id="ctCameraSwitch" title="Ganti kamera" aria-label="Ganti kamera">
-        <svg viewBox="0 0 24 24"><path d="M1 4v6h6"></path><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"></path></svg>
-      </button>
-      <button type="button" class="ct-cam-btn" id="ctCameraCapture" title="Ambil foto" aria-label="Ambil foto">
-        <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="8"></circle><circle cx="12" cy="12" r="3"></circle></svg>
-      </button>
-      <button type="button" class="ct-cam-btn ct-cam-btn-sm" id="ctCameraClose" title="Tutup" aria-label="Tutup">
-        <svg viewBox="0 0 24 24"><path d="M18 6 6 18"></path><path d="M6 6l12 12"></path></svg>
-      </button>
-    </div>
-  </div>
-</div>
-
 <script>
 (function () {
   const composer = document.querySelector('.ct-tools');
@@ -148,8 +118,6 @@
   const emojiInput = document.getElementById('ctEmojiInput');
   const uploading = document.getElementById('ctUploading');
   const uploadingText = document.getElementById('ctUploadingText');
-  const cameraModal = document.getElementById('ctCameraModal');
-  const cameraVideo = document.getElementById('ctCameraVideo');
   const isMobile = /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent);
 
   function show(el) { el.hidden = false; }
@@ -213,12 +181,12 @@
     if (!btn) return;
     hide(attachPanel);
     const action = btn.getAttribute('data-action');
-    if (action === 'camera') openCamera();
-    else if (action === 'gallery') {
-      const input = document.getElementById('ctFileGallery');
-      if (input) input.click();
-    } else if (action === 'doc') {
-      const input = document.getElementById('ctFileDoc');
+    // Kamera: membuka aplikasi kamera default bawaan perangkat (attribute capture)
+    const targetId = action === 'camera' ? 'ctFileCamera'
+      : action === 'gallery' ? 'ctFileGallery'
+      : action === 'doc' ? 'ctFileDoc' : null;
+    if (targetId) {
+      const input = document.getElementById(targetId);
       if (input) input.click();
     }
   });
@@ -231,71 +199,6 @@
       input.value = '';
       if (file) uploadFile(file);
     });
-  });
-
-  // ---------- Kamera (akses kamera langsung dari device) ----------
-  let cameraStream = null;
-  let cameraFacing = 'environment';
-
-  function stopCamera() {
-    if (cameraStream) {
-      cameraStream.getTracks().forEach(function (t) { t.stop(); });
-      cameraStream = null;
-    }
-    if (cameraVideo) cameraVideo.srcObject = null;
-  }
-
-  function startCamera() {
-    stopCamera();
-    return navigator.mediaDevices.getUserMedia({
-      video: { facingMode: cameraFacing, width: { ideal: 1920 }, height: { ideal: 1920 } },
-      audio: false
-    }).then(function (stream) {
-      cameraStream = stream;
-      cameraVideo.srcObject = stream;
-      show(cameraModal);
-      cameraVideo.play().catch(function () {});
-    });
-  }
-
-  function openCamera() {
-    hide(attachPanel);
-    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-      fallbackCamera();
-      return;
-    }
-    startCamera().catch(function () { fallbackCamera(); });
-  }
-
-  function fallbackCamera() {
-    const input = document.getElementById('ctFileCamera');
-    if (input) input.click();
-  }
-
-  document.getElementById('ctCameraCapture').addEventListener('click', function () {
-    if (!cameraVideo || !cameraVideo.videoWidth) return;
-    const canvas = document.createElement('canvas');
-    canvas.width = cameraVideo.videoWidth;
-    canvas.height = cameraVideo.videoHeight;
-    canvas.getContext('2d').drawImage(cameraVideo, 0, 0);
-    stopCamera();
-    hide(cameraModal);
-    canvas.toBlob(function (blob) {
-      if (blob) {
-        const file = new File([blob], 'kamera_' + Date.now() + '.jpg', { type: 'image/jpeg' });
-        uploadFile(file);
-      }
-    }, 'image/jpeg', 0.92);
-  });
-
-  document.getElementById('ctCameraSwitch').addEventListener('click', function () {
-    cameraFacing = cameraFacing === 'environment' ? 'user' : 'environment';
-    startCamera().catch(function () { fallbackCamera(); });
-  });
-
-  document.getElementById('ctCameraClose').addEventListener('click', function () {
-    stopCamera();
-    hide(cameraModal);
   });
 
   // ---------- Kompresi ----------
