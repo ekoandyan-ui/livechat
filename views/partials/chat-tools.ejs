@@ -14,7 +14,7 @@
 
   /* Ikon garis minimalis tanpa background */
   .ct-tool { flex: 0 0 auto; display: inline-flex; align-items: center; justify-content: center; width: 32px; height: 32px; background: transparent; border: none; padding: 0; color: var(--subtle); cursor: pointer; border-radius: 50%; transition: color .15s ease-in-out, background .15s ease-in-out; }
-  .ct-tool:hover, .ct-tool.active { color: var(--primary); background: rgba(14,165,233,.1); }
+  .ct-tool:hover, .ct-tool.active { color: var(--primary); }
   .ct-tool svg { width: 21px; height: 21px; fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; }
 
   .ct-panel { position: absolute; bottom: calc(100% + 8px); right: 0; background: var(--surface); border: 1px solid var(--border); border-radius: 12px; box-shadow: 0 10px 30px rgba(0,0,0,.15); z-index: 50; }
@@ -73,12 +73,12 @@
 
   <!-- Tombol emoji: di HP membuka keyboard emoji bawaan, di desktop membuka panel -->
   <button type="button" class="ct-tool" id="ctEmojiBtn" title="Emoji" aria-label="Emoji">
-    <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"></circle><path d="M8.5 14.5a4.3 4.3 0 0 0 7 0"></path><path d="M9 9.6h.01"></path><path d="M15 9.6h.01"></path></svg>
+    <svg viewBox="0 0 24 24"><path d="M15 10V9"></path><path d="M16.472 15a6 6 0 0 1-8.943 0"></path><path d="M9 10V9"></path><circle cx="12" cy="12" r="10"></circle></svg>
   </button>
 
   <!-- Tombol lampiran -->
   <button type="button" class="ct-tool" id="ctAttachBtn" title="Lampirkan" aria-label="Lampirkan">
-    <svg viewBox="0 0 24 24"><path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"></path></svg>
+    <svg viewBox="0 0 24 24"><path d="m16 6-8.414 8.586a2 2 0 0 0 2.829 2.829l8.414-8.586a4 4 0 1 0-5.657-5.657l-8.379 8.551a6 6 0 1 0 8.485 8.485l8.379-8.551"></path></svg>
   </button>
 
   <!-- Input tersembunyi untuk membuka keyboard emoji bawaan HP -->
