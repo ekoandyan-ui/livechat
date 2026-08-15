@@ -4,496 +4,110 @@
 
 <!-- =============================================
      Fitur Emoji & Lampiran (dipakai di chat pasien & admin)
-     Ikon Lucide Minimalis & Premium Web Standard
      ============================================= -->
 <style>
-  /* Kotak ketik: input + ikon menyatu dalam satu box modern */
-  .ct-composer {
-    flex: 1;
-    display: flex;
-    align-items: center;
-    gap: 4px;
-    min-width: 0;
-    background: var(--surface);
-    border: 1.5px solid var(--border);
-    border-radius: 24px;
-    padding: 3px 8px 3px 16px;
-    transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
-    box-shadow: 0 2px 6px rgba(0, 0, 0, 0.02);
-  }
-  .ct-composer:focus-within {
-    border-color: var(--primary);
-    box-shadow: 0 0 0 3.5px rgba(14, 165, 233, 0.14), 0 4px 12px rgba(14, 165, 233, 0.08);
-  }
-  .ct-composer input {
-    flex: 1;
-    min-width: 0;
-    background: transparent;
-    border: none;
-    padding: 10px 0;
-    font-size: 14.5px;
-    color: var(--text);
-  }
-  .ct-composer input:focus {
-    outline: none;
-    border: none;
-    box-shadow: none;
-  }
+  /* Kotak ketik: input + ikon menyatu dalam satu box */
+  .ct-composer { flex: 1; display: flex; align-items: center; gap: 2px; min-width: 0; background: var(--bg); border: 1px solid var(--border); border-radius: 22px; padding: 4px 6px 4px 14px; transition: border-color .15s ease-in-out, box-shadow .15s ease-in-out; }
+  .ct-composer:focus-within { border-color: var(--primary); box-shadow: 0 0 0 0.15rem rgba(14,165,233,.18); }
+  .ct-composer input { flex: 1; min-width: 0; background: transparent; border: none; padding: 9px 0; font-size: 14px; color: var(--text); }
+  .ct-composer input:focus { outline: none; border: none; box-shadow: none; }
 
-  /* Action Icon Buttons (Lucide standard minimalist) */
-  .ct-tool {
-    flex: 0 0 auto;
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    width: 36px;
-    height: 36px;
-    background: transparent;
-    border: none;
-    padding: 0;
-    color: var(--subtle);
-    cursor: pointer;
-    border-radius: 50%;
-    position: relative;
-    transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
-  }
-  .ct-tool:hover {
-    color: var(--primary);
-    background: rgba(14, 165, 233, 0.1);
-    transform: scale(1.08);
-  }
-  .ct-tool.active {
-    color: var(--primary);
-    background: rgba(14, 165, 233, 0.15);
-    transform: scale(1.05);
-  }
-  .ct-tool svg {
-    width: 22px;
-    height: 22px;
-    fill: none;
-    stroke: currentColor;
-    stroke-width: 1.8;
-    stroke-linecap: round;
-    stroke-linejoin: round;
-    transition: transform 0.25s cubic-bezier(0.4, 0, 0.2, 1);
-  }
-  .ct-tool.active#ctAttachBtn svg {
-    transform: rotate(45deg);
-  }
-  .ct-tool.active#ctEmojiBtn svg {
-    transform: scale(1.12);
-  }
+  /* Ikon garis minimalis tanpa background */
+  .ct-tool { flex: 0 0 auto; display: inline-flex; align-items: center; justify-content: center; width: 32px; height: 32px; background: transparent; border: none; padding: 0; color: var(--subtle); cursor: pointer; border-radius: 50%; transition: color .15s ease-in-out, background .15s ease-in-out; }
+  .ct-tool:hover, .ct-tool.active { color: var(--primary); }
+  .ct-tool svg { width: 21px; height: 21px; fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; }
 
-  /* Floating Tooltips */
-  @media (hover: hover) {
-    .ct-tool[data-tooltip]::after {
-      content: attr(data-tooltip);
-      position: absolute;
-      bottom: calc(100% + 8px);
-      left: 50%;
-      transform: translateX(-50%) translateY(4px) scale(0.92);
-      background: #0f172a;
-      color: #ffffff;
-      font-size: 11px;
-      font-weight: 500;
-      padding: 4px 9px;
-      border-radius: 6px;
-      white-space: nowrap;
-      opacity: 0;
-      pointer-events: none;
-      transition: all 0.18s cubic-bezier(0.4, 0, 0.2, 1);
-      box-shadow: 0 4px 14px rgba(0, 0, 0, 0.18);
-      z-index: 60;
-    }
-    .ct-tool[data-tooltip]:hover::after {
-      opacity: 1;
-      transform: translateX(-50%) translateY(0) scale(1);
-    }
-  }
-
-  /* Floating Popup Panels (Attachment & Emoji) */
-  .ct-panel {
-    position: absolute;
-    bottom: calc(100% + 12px);
-    right: 0;
-    background: var(--surface);
-    border: 1px solid var(--border);
-    border-radius: 18px;
-    box-shadow: 0 16px 40px -8px rgba(0, 0, 0, 0.16), 0 0 0 1px rgba(0, 0, 0, 0.04);
-    z-index: 50;
-    backdrop-filter: blur(16px);
-    animation: ctPopIn 0.22s cubic-bezier(0.16, 1, 0.3, 1);
-    overflow: hidden;
-  }
-  .ct-panel[hidden] {
-    display: none;
-  }
-  @keyframes ctPopIn {
-    from { opacity: 0; transform: translateY(10px) scale(0.95); }
-    to { opacity: 1; transform: translateY(0) scale(1); }
-  }
-
-  /* Attachment Panel Menu List */
-  .ct-attach-list {
-    padding: 8px;
-    display: flex;
-    flex-direction: column;
-    gap: 4px;
-    min-width: 230px;
-  }
-  .ct-attach-btn {
-    display: flex;
-    align-items: center;
-    gap: 12px;
-    background: transparent;
-    border: none;
-    padding: 9px 12px;
-    border-radius: 12px;
-    color: var(--text);
-    cursor: pointer;
-    text-align: left;
-    width: 100%;
-    transition: all 0.18s ease;
-  }
-  .ct-attach-btn:hover {
-    background: var(--primary-light);
-  }
-  .ct-attach-badge {
-    width: 38px;
-    height: 38px;
-    border-radius: 10px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    flex: 0 0 auto;
-    transition: transform 0.2s ease;
-  }
-  .ct-attach-btn:hover .ct-attach-badge {
-    transform: scale(1.08);
-  }
-  .ct-badge-rose {
-    background: rgba(244, 63, 94, 0.12);
-    color: #e11d48;
-  }
-  .ct-badge-emerald {
-    background: rgba(16, 185, 129, 0.12);
-    color: #059669;
-  }
-  .ct-badge-indigo {
-    background: rgba(99, 102, 241, 0.12);
-    color: #4f46e5;
-  }
-  .ct-attach-badge svg {
-    width: 20px;
-    height: 20px;
-    fill: none;
-    stroke: currentColor;
-    stroke-width: 1.9;
-    stroke-linecap: round;
-    stroke-linejoin: round;
-  }
-  .ct-attach-meta {
-    display: flex;
-    flex-direction: column;
-    min-width: 0;
-  }
-  .ct-attach-title {
-    font-size: 13.5px;
-    font-weight: 600;
-    color: var(--text);
-    line-height: 1.3;
-  }
-  .ct-attach-desc {
-    font-size: 11px;
-    color: var(--subtle);
-    line-height: 1.2;
-  }
-
-  /* Emoji Panel Styling */
-  .ct-emoji-container {
-    width: 320px;
-    display: flex;
-    flex-direction: column;
-  }
-  .ct-emoji-header {
-    padding: 10px 12px 6px 12px;
-    border-bottom: 1px solid var(--border);
-    display: flex;
-    flex-direction: column;
-    gap: 8px;
-  }
-  .ct-emoji-search-wrapper {
-    position: relative;
-    display: flex;
-    align-items: center;
-  }
-  .ct-emoji-search-wrapper svg {
-    position: absolute;
-    left: 10px;
-    width: 15px;
-    height: 15px;
-    color: var(--subtle);
-    pointer-events: none;
-    fill: none;
-    stroke: currentColor;
-    stroke-width: 2;
-    stroke-linecap: round;
-    stroke-linejoin: round;
-  }
-  .ct-emoji-search {
-    width: 100%;
-    padding: 6px 10px 6px 32px;
-    font-size: 12.5px;
-    border-radius: 16px;
-    border: 1px solid var(--border);
-    background: var(--bg);
-    color: var(--text);
-    outline: none;
-    transition: border-color 0.15s ease;
-  }
-  .ct-emoji-search:focus {
-    border-color: var(--primary);
-  }
-  .ct-emoji-tabs {
-    display: flex;
-    gap: 4px;
-    overflow-x: auto;
-    scrollbar-width: none;
-    padding-bottom: 2px;
-  }
-  .ct-emoji-tabs::-webkit-scrollbar { display: none; }
-  .ct-emoji-tab {
-    background: transparent;
-    border: none;
-    padding: 4px 8px;
-    font-size: 11.5px;
-    font-weight: 500;
-    color: var(--subtle);
-    border-radius: 8px;
-    cursor: pointer;
-    white-space: nowrap;
-    transition: all 0.15s ease;
-  }
-  .ct-emoji-tab:hover, .ct-emoji-tab.active {
-    background: var(--primary-light);
-    color: var(--primary);
-  }
-  .ct-emoji-grid {
-    display: grid;
-    grid-template-columns: repeat(8, 1fr);
-    gap: 2px;
-    padding: 8px 10px;
-    max-height: 210px;
-    overflow-y: auto;
-  }
-  .ct-emoji-grid::-webkit-scrollbar {
-    width: 5px;
-  }
-  .ct-emoji-grid::-webkit-scrollbar-thumb {
-    background: rgba(0,0,0,0.15);
-    border-radius: 4px;
-  }
-  .ct-emoji-grid button {
-    background: none;
-    border: none;
-    font-size: 22px;
-    padding: 6px 0;
-    cursor: pointer;
-    border-radius: 8px;
-    line-height: 1;
-    transition: transform 0.15s ease, background 0.15s ease;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-  }
-  .ct-emoji-grid button:hover {
-    background: var(--primary-light);
-    transform: scale(1.22);
-  }
-
+  .ct-panel { position: absolute; bottom: calc(100% + 8px); right: 0; background: var(--surface); border: 1px solid var(--border); border-radius: 12px; box-shadow: 0 10px 30px rgba(0,0,0,.15); z-index: 50; }
+  .ct-panel[hidden] { display: none; }
+  .ct-attach-list { padding: 6px; display: flex; flex-direction: column; min-width: 185px; }
+  .ct-attach-list button { display: flex; align-items: center; gap: 10px; background: none; border: none; padding: 10px 12px; border-radius: 8px; font-size: 14px; color: var(--text); cursor: pointer; text-align: left; width: 100%; }
+  .ct-attach-list button:hover { background: var(--primary-light); color: var(--primary); }
+  .ct-attach-list button svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; flex: 0 0 auto; }
+  .ct-emoji-grid { display: grid; grid-template-columns: repeat(8, 1fr); gap: 4px; padding: 10px; max-width: 320px; max-height: 220px; overflow-y: auto; }
+  .ct-emoji-grid button { background: none; border: none; font-size: 24px; padding: 4px; cursor: pointer; border-radius: 6px; line-height: 1; }
+  .ct-emoji-grid button:hover { background: var(--primary-light); }
   .ct-emoji-input { position: fixed; left: -9999px; top: 0; width: 1px; height: 1px; opacity: 0; pointer-events: none; border: none; padding: 0; }
-  .ct-uploading { position: absolute; bottom: calc(100% + 12px); left: 0; right: 0; background: var(--surface); border: 1px solid var(--border); border-radius: 14px; padding: 10px 14px; font-size: 13px; color: var(--subtle); display: flex; align-items: center; gap: 10px; box-shadow: 0 12px 32px rgba(0,0,0,.15); z-index: 50; }
+  .ct-uploading { position: absolute; bottom: calc(100% + 8px); left: 0; right: 0; background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 10px 14px; font-size: 13px; color: var(--subtle); display: flex; align-items: center; gap: 10px; box-shadow: 0 10px 30px rgba(0,0,0,.15); z-index: 50; }
   .ct-uploading[hidden] { display: none; }
   .ct-uploading .ct-spinner { width: 16px; height: 16px; border: 2px solid var(--primary-light); border-top-color: var(--primary); border-radius: 50%; animation: ct-spin .8s linear infinite; flex: 0 0 auto; }
   .ct-uploading .ct-u-text { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   @keyframes ct-spin { to { transform: rotate(360deg); } }
 
-  /* Modal kamera */
+  /* Modal kamera (akses kamera langsung dari device) */
   .ct-camera-modal { position: fixed; inset: 0; background: rgba(15,23,42,.9); z-index: 1000; display: flex; align-items: center; justify-content: center; padding: 20px; }
   .ct-camera-modal[hidden] { display: none; }
   .ct-camera-box { background: #000; border-radius: 16px; overflow: hidden; max-width: 520px; width: 100%; position: relative; }
   .ct-camera-box video { width: 100%; display: block; max-height: 70vh; object-fit: contain; background: #000; }
   .ct-camera-controls { display: flex; justify-content: center; align-items: center; gap: 28px; padding: 14px; }
-  .ct-cam-btn { width: 54px; height: 54px; border-radius: 50%; border: 2px solid rgba(255,255,255,.9); background: rgba(255,255,255,.12); color: #fff; display: inline-flex; align-items: center; justify-content: center; cursor: pointer; transition: background .15s, transform .15s; }
-  .ct-cam-btn:hover { background: rgba(255,255,255,.28); transform: scale(1.05); }
+  .ct-cam-btn { width: 54px; height: 54px; border-radius: 50%; border: 2px solid rgba(255,255,255,.9); background: rgba(255,255,255,.12); color: #fff; display: inline-flex; align-items: center; justify-content: center; cursor: pointer; transition: background .15s; }
+  .ct-cam-btn:hover { background: rgba(255,255,255,.28); }
   .ct-cam-btn svg { width: 24px; height: 24px; fill: none; stroke: #fff; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
   .ct-cam-btn-sm { width: 46px; height: 46px; }
+  .ct-camera-error { padding: 30px; color: #fff; text-align: center; font-size: 14px; }
 
-  /* Styling Tombol Kirim jika ada di dalam container */
-  .chat-input #sendBtn {
-    flex: 0 0 auto;
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    gap: 6px;
-    background: linear-gradient(135deg, var(--primary) 0%, var(--primary-dark) 100%);
-    color: #ffffff;
-    border: none;
-    padding: 0 20px;
-    height: 44px;
-    border-radius: 22px;
-    font-size: 14px;
-    font-weight: 600;
-    cursor: pointer;
-    box-shadow: 0 3px 10px rgba(14, 165, 233, 0.3);
-    transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
-  }
-  .chat-input #sendBtn:hover {
-    background: linear-gradient(135deg, #0284c7 0%, #0369a1 100%);
-    transform: translateY(-1px);
-    box-shadow: 0 5px 15px rgba(14, 165, 233, 0.4);
-  }
-  .chat-input #sendBtn:active {
-    transform: translateY(0);
-    box-shadow: 0 2px 6px rgba(14, 165, 233, 0.3);
-  }
-  .chat-input #sendBtn svg {
-    width: 17px;
-    height: 17px;
-    fill: none;
-    stroke: currentColor;
-    stroke-width: 2.2;
-    stroke-linecap: round;
-    stroke-linejoin: round;
-    transition: transform 0.2s ease;
-  }
-  .chat-input #sendBtn:hover svg {
-    transform: translateX(2px) translateY(-1px);
-  }
-
-  /* Tampilan lampiran di gelembung pesan */
+  /* Tampilan lampiran di dalam gelembung pesan */
   .chat-file { display: block; }
-  .chat-file-img { display: block; max-width: 100%; max-height: 260px; border-radius: 10px; cursor: pointer; margin: 2px 0; transition: transform 0.2s ease; }
-  .chat-file-img:hover { transform: scale(1.01); }
-  .chat-file-video { display: block; max-width: 100%; max-height: 260px; border-radius: 10px; margin: 2px 0; }
-  .chat-file-doc { display: flex; align-items: center; gap: 10px; padding: 10px 12px; background: rgba(0,0,0,.05); border-radius: 10px; text-decoration: none; color: var(--text); min-width: 180px; max-width: 270px; margin: 2px 0; transition: background 0.15s ease; }
-  .chat-file-doc:hover { background: rgba(0,0,0,.08); }
+  .chat-file-img { display: block; max-width: 100%; max-height: 260px; border-radius: 8px; cursor: pointer; margin: 2px 0; }
+  .chat-file-video { display: block; max-width: 100%; max-height: 260px; border-radius: 8px; margin: 2px 0; }
+  .chat-file-doc { display: flex; align-items: center; gap: 10px; padding: 8px 10px; background: rgba(0,0,0,.05); border-radius: 8px; text-decoration: none; color: var(--text); min-width: 180px; max-width: 260px; margin: 2px 0; }
   .msg-mine .chat-file-doc, .msg-admin .chat-file-doc { background: rgba(255,255,255,.2); color: #fff; }
-  .msg-mine .chat-file-doc:hover, .msg-admin .chat-file-doc:hover { background: rgba(255,255,255,.28); }
-  .chat-file-doc .doc-icon { font-size: 24px; flex: 0 0 auto; }
+  .chat-file-doc .doc-icon { font-size: 26px; flex: 0 0 auto; }
   .chat-file-doc .doc-meta { min-width: 0; display: flex; flex-direction: column; }
   .chat-file-doc .doc-name { font-size: 13px; font-weight: 600; word-break: break-word; }
-  .chat-file-doc .doc-size { font-size: 11px; opacity: .75; }
+  .chat-file-doc .doc-size { font-size: 11px; opacity: .7; }
 
   @media (max-width: 768px) {
     .ct-composer { border-radius: 20px; }
   }
   @media (max-width: 576px) {
-    .ct-composer { padding: 2px 4px 2px 12px; }
-    .ct-composer input { font-size: 15px; padding: 8px 0; }
-    .ct-tool { width: 32px; height: 32px; }
-    .ct-tool svg { width: 20px; height: 20px; }
-    .ct-emoji-container { width: 285px; }
-    .ct-emoji-grid { grid-template-columns: repeat(7, 1fr); max-height: 180px; }
-    .chat-input #sendBtn { padding: 0 14px; height: 38px; font-size: 13px; border-radius: 19px; }
+    .ct-composer { padding: 3px 4px 3px 10px; }
+    .ct-composer input { font-size: 16px; padding: 8px 0; }
+    .ct-tool { width: 30px; height: 30px; }
+    .ct-tool svg { width: 19px; height: 19px; }
+    .ct-emoji-grid { grid-template-columns: repeat(7, 1fr); max-width: 280px; max-height: 180px; }
   }
 </style>
 
 <div class="ct-composer ct-tools" data-sender="<%= senderName %>" data-room="<%= roomId %>">
   <input type="text" id="msgInput" placeholder="<%= placeholder %>" autocomplete="off" />
 
-  <!-- Tombol Emoji (Lucide Smile Icon) -->
-  <button type="button" class="ct-tool" id="ctEmojiBtn" title="Emoji" aria-label="Emoji" data-tooltip="Emoji">
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">
-      <circle cx="12" cy="12" r="10"></circle>
-      <path d="M8 14s1.5 2 4 2 4-2 4-2"></path>
-      <line x1="9" y1="9" x2="9.01" y2="9"></line>
-      <line x1="15" y1="9" x2="15.01" y2="9"></line>
-    </svg>
+  <!-- Tombol emoji: di HP membuka keyboard emoji bawaan, di desktop membuka panel -->
+  <button type="button" class="ct-tool" id="ctEmojiBtn" title="Emoji" aria-label="Emoji">
+    <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"></circle><path d="M15 10V9"></path><path d="M16.472 15a6 6 0 0 1-8.943 0"></path><path d="M9 10V9"></path></svg>
   </button>
 
-  <!-- Tombol Lampiran (Lucide Paperclip Icon) -->
-  <button type="button" class="ct-tool" id="ctAttachBtn" title="Lampirkan" aria-label="Lampirkan" data-tooltip="Lampirkan file">
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">
-      <path d="m21.44 11.05-9.19 9.19a6 6 0 0 1-8.49-8.49l8.57-8.57A4 4 0 1 1 18 8.84l-8.59 8.57a2 2 0 0 1-2.83-2.83l8.49-8.48"></path>
-    </svg>
+  <!-- Tombol lampiran -->
+  <button type="button" class="ct-tool" id="ctAttachBtn" title="Lampirkan" aria-label="Lampirkan">
+    <svg viewBox="0 0 24 24"><path d="m16 6-8.414 8.586a2 2 0 0 0 2.829 2.829l8.414-8.586a4 4 0 1 0-5.657-5.657l-8.379 8.551a6 6 0 1 0 8.485 8.485l8.379-8.551"></path></svg>
   </button>
 
-  <!-- Input tersembunyi untuk keyboard emoji HP -->
+  <!-- Input tersembunyi untuk membuka keyboard emoji bawaan HP -->
   <input type="text" class="ct-emoji-input" id="ctEmojiInput" inputmode="emoji" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" />
 
-  <!-- Input file fallback -->
+  <!-- Input file fallback (jika kamera browser tidak tersedia / ditolak) -->
   <input type="file" id="ctFileCamera" accept="image/*" capture="environment" hidden />
   <input type="file" id="ctFileGallery" accept="image/*,video/*" hidden />
   <input type="file" id="ctFileDoc" accept=".pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.csv,.zip,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document" hidden />
 
-  <!-- Panel Lampiran (Lucide minimalis badges) -->
   <div class="ct-panel" id="ctAttachPanel" hidden>
     <div class="ct-attach-list">
-      <button type="button" data-action="camera" class="ct-attach-btn">
-        <span class="ct-attach-badge ct-badge-rose">
-          <svg viewBox="0 0 24 24">
-            <path d="M14.5 4h-5L7 7H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3l-2.5-3z"></path>
-            <circle cx="12" cy="13" r="3"></circle>
-          </svg>
-        </span>
-        <span class="ct-attach-meta">
-          <span class="ct-attach-title">Kamera</span>
-          <span class="ct-attach-desc">Ambil foto langsung</span>
-        </span>
+      <button type="button" data-action="camera">
+        <svg viewBox="0 0 24 24"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"></path><circle cx="12" cy="13" r="4"></circle></svg>
+        Kamera
       </button>
-
-      <button type="button" data-action="gallery" class="ct-attach-btn">
-        <span class="ct-attach-badge ct-badge-emerald">
-          <svg viewBox="0 0 24 24">
-            <rect width="18" height="18" x="3" y="3" rx="2" ry="2"></rect>
-            <circle cx="9" cy="9" r="2"></circle>
-            <path d="m21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21"></path>
-          </svg>
-        </span>
-        <span class="ct-attach-meta">
-          <span class="ct-attach-title">Galeri Media</span>
-          <span class="ct-attach-desc">Foto & video dari perangkat</span>
-        </span>
+      <button type="button" data-action="gallery">
+        <svg viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2"></rect><circle cx="8.5" cy="8.5" r="1.5"></circle><path d="M21 15l-5-5L5 21"></path></svg>
+        Galeri
       </button>
-
-      <button type="button" data-action="doc" class="ct-attach-btn">
-        <span class="ct-attach-badge ct-badge-indigo">
-          <svg viewBox="0 0 24 24">
-            <path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"></path>
-            <path d="M14 2v4a2 2 0 0 0 2 2h4"></path>
-            <path d="M10 9H8"></path>
-            <path d="M16 13H8"></path>
-            <path d="M16 17H8"></path>
-          </svg>
-        </span>
-        <span class="ct-attach-meta">
-          <span class="ct-attach-title">Dokumen</span>
-          <span class="ct-attach-desc">PDF, Word, Excel, ZIP</span>
-        </span>
+      <button type="button" data-action="doc">
+        <svg viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><path d="M14 2v6h6"></path><path d="M16 13H8"></path><path d="M16 17H8"></path></svg>
+        Dokumen
       </button>
     </div>
   </div>
 
-  <!-- Panel Emoji (Categorized & Searchable) -->
   <div class="ct-panel" id="ctEmojiPanel" hidden>
-    <div class="ct-emoji-container">
-      <div class="ct-emoji-header">
-        <div class="ct-emoji-search-wrapper">
-          <svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
-          <input type="text" class="ct-emoji-search" id="ctEmojiSearch" placeholder="Cari emoji..." autocomplete="off" />
-        </div>
-        <div class="ct-emoji-tabs" id="ctEmojiTabs">
-          <button type="button" class="ct-emoji-tab active" data-cat="all">Semua</button>
-          <button type="button" class="ct-emoji-tab" data-cat="face">😀 Ekspresi</button>
-          <button type="button" class="ct-emoji-tab" data-cat="hand">👍 Gestur</button>
-          <button type="button" class="ct-emoji-tab" data-cat="health">🩺 Medis</button>
-          <button type="button" class="ct-emoji-tab" data-cat="symbol">❤️ Simbol</button>
-          <button type="button" class="ct-emoji-tab" data-cat="object">📱 Objek</button>
-        </div>
-      </div>
-      <div class="ct-emoji-grid" id="ctEmojiGrid"></div>
-    </div>
+    <div class="ct-emoji-grid" id="ctEmojiGrid"></div>
   </div>
 
   <div class="ct-uploading" id="ctUploading" hidden>
@@ -508,10 +122,10 @@
     <video id="ctCameraVideo" autoplay playsinline muted></video>
     <div class="ct-camera-controls">
       <button type="button" class="ct-cam-btn ct-cam-btn-sm" id="ctCameraSwitch" title="Ganti kamera" aria-label="Ganti kamera">
-        <svg viewBox="0 0 24 24"><path d="M21 12a9 9 0 0 0-9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"></path><path d="M3 3v5h5"></path><path d="M3 12a9 9 0 0 0 9 9 9.75 9.75 0 0 0 6.74-2.74L21 16"></path><path d="M16 16h5v5"></path></svg>
+        <svg viewBox="0 0 24 24"><path d="M1 4v6h6"></path><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"></path></svg>
       </button>
       <button type="button" class="ct-cam-btn" id="ctCameraCapture" title="Ambil foto" aria-label="Ambil foto">
-        <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"></circle><circle cx="12" cy="12" r="4" fill="currentColor"></circle></svg>
+        <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="8"></circle><circle cx="12" cy="12" r="3"></circle></svg>
       </button>
       <button type="button" class="ct-cam-btn ct-cam-btn-sm" id="ctCameraClose" title="Tutup" aria-label="Tutup">
         <svg viewBox="0 0 24 24"><path d="M18 6 6 18"></path><path d="M6 6l12 12"></path></svg>
@@ -552,176 +166,30 @@
     return b + ' B';
   }
 
-  // ---------- Emoji picker dengan Kategori & Pencarian ----------
-  const EMOJI_DATA = [
-    // Ekspresi
-    { e: '😀', c: 'face', k: 'senyum smile happy' },
-    { e: '😁', c: 'face', k: 'senyum lebat smile grin' },
-    { e: '😂', c: 'face', k: 'tertawa ketawa laugh joy' },
-    { e: '🤣', c: 'face', k: 'ngakak rofl laugh' },
-    { e: '😊', c: 'face', k: 'senyum blush happy' },
-    { e: '😍', c: 'face', k: 'cinta love heart eyes' },
-    { e: '😘', c: 'face', k: 'cium kiss' },
-    { e: '😎', c: 'face', k: 'keren cool' },
-    { e: '🤩', c: 'face', k: 'star struck wow' },
-    { e: '🥰', c: 'face', k: 'cinta kasih love' },
-    { e: '😇', c: 'face', k: 'angel baik' },
-    { e: '🙂', c: 'face', k: 'smile' },
-    { e: '😉', c: 'face', k: 'wink kedip' },
-    { e: '😌', c: 'face', k: 'relieved santai' },
-    { e: '😋', c: 'face', k: 'yum enak' },
-    { e: '😜', c: 'face', k: 'lengket bercanda' },
-    { e: '🤪', c: 'face', k: 'zany lucu' },
-    { e: '🧐', c: 'face', k: 'monocle liat' },
-    { e: '🤓', c: 'face', k: 'nerd pinter' },
-    { e: '😏', c: 'face', k: 'smirk' },
-    { e: '😒', c: 'face', k: 'unamused males' },
-    { e: '🙄', c: 'face', k: 'roll eyes' },
-    { e: '😔', c: 'face', k: 'sedih pensive' },
-    { e: '😢', c: 'face', k: 'nangis cry' },
-    { e: '😭', c: 'face', k: 'nangis parah sob' },
-    { e: '😤', c: 'face', k: 'kesel triumph' },
-    { e: '😠', c: 'face', k: 'marah angry' },
-    { e: '🤯', c: 'face', k: 'exploding mind blown' },
-    { e: '😳', c: 'face', k: 'kaget flushed' },
-    { e: '🥺', c: 'face', k: 'pleading mohon' },
-    { e: '😱', c: 'face', k: 'scared takut' },
-    { e: '😷', c: 'face', k: 'masker sakit mask' },
-    { e: '🤒', c: 'face', k: 'demam sakit fever' },
-    { e: '🤕', c: 'face', k: 'perban luka bandage' },
-    { e: '🤢', c: 'face', k: 'mual nauseated' },
-    { e: '🤮', c: 'face', k: 'muntah vomit' },
-    { e: '🥵', c: 'face', k: 'panas hot' },
-    { e: '🥶', c: 'face', k: 'dingin cold' },
-    { e: '😴', c: 'face', k: 'tidur sleep' },
-    { e: '😪', c: 'face', k: 'ngantuk sleepy' },
-    { e: '🤗', c: 'face', k: 'peluk hug' },
-    { e: '🤔', c: 'face', k: 'mikir thinking' },
-
-    // Gestur & Hands
-    { e: '👍', c: 'hand', k: 'thumbs up oke mantap' },
-    { e: '👎', c: 'hand', k: 'thumbs down jelek' },
-    { e: '👌', c: 'hand', k: 'ok sip' },
-    { e: '✌️', c: 'hand', k: 'victory peace dua' },
-    { e: '🤞', c: 'hand', k: 'crossed fingers doa' },
-    { e: '🤙', c: 'hand', k: 'call me telfon' },
-    { e: '👏', c: 'hand', k: 'tepuk tangan clap' },
-    { e: '🙌', c: 'hand', k: 'raised hands' },
-    { e: '🙏', c: 'hand', k: 'makasih pray terima kasih' },
-    { e: '🤝', c: 'hand', k: 'handshake sepakat' },
-    { e: '💪', c: 'hand', k: 'flex muscle kuat semangat' },
-
-    // Medis / Dinkes
-    { e: '🩺', c: 'health', k: 'stetoskop dokter medis health' },
-    { e: '💊', c: 'health', k: 'obat pil medicine' },
-    { e: '💉', c: 'health', k: 'suntik vaksin syringe' },
-    { e: '🏥', c: 'health', k: 'rumah sakit hospital' },
-    { e: '🚑', c: 'health', k: 'ambulans ambulance' },
-
-    // Simbol & Hati
-    { e: '❤️', c: 'symbol', k: 'heart merah cinta love' },
-    { e: '🧡', c: 'symbol', k: 'heart oranye' },
-    { e: '💛', c: 'symbol', k: 'heart kuning' },
-    { e: '💚', c: 'symbol', k: 'heart hijau' },
-    { e: '💙', c: 'symbol', k: 'heart biru' },
-    { e: '💜', c: 'symbol', k: 'heart ungu' },
-    { e: '🖤', c: 'symbol', k: 'heart hitam' },
-    { e: '💖', c: 'symbol', k: 'heart sparkle' },
-    { e: '💯', c: 'symbol', k: '100 seratus' },
-    { e: '✨', c: 'symbol', k: 'sparkles kilau' },
-    { e: '🔥', c: 'symbol', k: 'fire api hot' },
-    { e: '🎉', c: 'symbol', k: 'party pesta' },
-    { e: '🎂', c: 'symbol', k: 'cake ultah' },
-    { e: '⭐', c: 'symbol', k: 'star bintang' },
-    { e: '🌈', c: 'symbol', k: 'rainbow pelangi' },
-    { e: '☀️', c: 'symbol', k: 'sun matahari' },
-    { e: '🌙', c: 'symbol', k: 'moon bulan' },
-    { e: '⏰', c: 'symbol', k: 'clock jam' },
-    { e: '✅', c: 'symbol', k: 'check centang sukses' },
-    { e: '❌', c: 'symbol', k: 'cross silang batal' },
-    { e: '⚠️', c: 'symbol', k: 'warning peringatan' },
-    { e: 'ℹ️', c: 'symbol', k: 'info informasi' },
-
-    // Objek
-    { e: '📞', c: 'object', k: 'telefon phone' },
-    { e: '📱', c: 'object', k: 'hp smartphone' },
-    { e: '📎', c: 'object', k: 'paperclip lampiran' },
-    { e: '📄', c: 'object', k: 'dokumen document file' },
-    { e: '📷', c: 'object', k: 'kamera camera foto' },
-    { e: '🎥', c: 'object', k: 'video kamera' },
-    { e: '🖼️', c: 'object', k: 'gambar photo picture' }
-  ];
-
+  // ---------- Emoji picker (desktop) ----------
+  const EMOJIS = ['😀','😁','😂','🤣','😊','😍','😘','😎','🤩','🥰','😇','🙂','😉','😌','😋','😜','🤪','🧐','🤓','😏','😒','🙄','😔','😢','😭','😤','😠','🤯','😳','🥺','😱','😷','🤒','🤕','🤢','🤮','🥵','🥶','😴','😪','🤗','🤔','👍','👎','👌','✌️','🤞','🤙','👏','🙌','🙏','🤝','💪','❤️','🧡','💛','💚','💙','💜','🖤','💖','💯','✨','🔥','🎉','🎂','⭐','🌈','☀️','🌙','⏰','📞','📱','💉','💊','🏥','🚑','🩺','✅','❌','⚠️','ℹ️','📎','📄','📷','🎥','🖼️'];
   const grid = document.getElementById('ctEmojiGrid');
-  const searchInput = document.getElementById('ctEmojiSearch');
-  const tabsContainer = document.getElementById('ctEmojiTabs');
-  let activeCat = 'all';
-  let searchQuery = '';
+  EMOJIS.forEach(function (e) {
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.textContent = e;
+    b.onclick = function () {
+      msgInput.value += e;
+      hide(emojiPanel);
+      msgInput.focus();
+    };
+    grid.appendChild(b);
+  });
 
-  function renderEmojis() {
-    grid.innerHTML = '';
-    const q = searchQuery.toLowerCase().trim();
-    const filtered = EMOJI_DATA.filter(function (item) {
-      const matchCat = activeCat === 'all' || item.c === activeCat;
-      const matchSearch = !q || item.e.includes(q) || item.k.toLowerCase().includes(q);
-      return matchCat && matchSearch;
-    });
-
-    if (filtered.length === 0) {
-      grid.innerHTML = '<div style="grid-column:1/-1;text-align:center;padding:24px 10px;font-size:12.5px;color:var(--subtle);">Emoji tidak ditemukan</div>';
-      return;
-    }
-
-    filtered.forEach(function (item) {
-      const b = document.createElement('button');
-      b.type = 'button';
-      b.textContent = item.e;
-      b.title = item.k.split(' ')[0];
-      b.onclick = function () {
-        msgInput.value += item.e;
-        hide(emojiPanel);
-        emojiBtn.classList.remove('active');
-        msgInput.focus();
-      };
-      grid.appendChild(b);
-    });
-  }
-
-  if (searchInput) {
-    searchInput.addEventListener('input', function () {
-      searchQuery = searchInput.value;
-      renderEmojis();
-    });
-  }
-
-  if (tabsContainer) {
-    tabsContainer.addEventListener('click', function (e) {
-      const tab = e.target.closest('.ct-emoji-tab');
-      if (!tab) return;
-      tabsContainer.querySelectorAll('.ct-emoji-tab').forEach(function (t) { t.classList.remove('active'); });
-      tab.classList.add('active');
-      activeCat = tab.getAttribute('data-cat') || 'all';
-      renderEmojis();
-    });
-  }
-
-  emojiBtn.addEventListener('click', function (e) {
-    e.stopPropagation();
+  emojiBtn.addEventListener('click', function () {
     hide(attachPanel);
-    attachBtn.classList.remove('active');
-
     if (isMobile) {
       hide(emojiPanel);
-      emojiBtn.classList.remove('active');
       emojiInput.value = '';
       emojiInput.focus();
     } else {
       emojiPanel.hidden = !emojiPanel.hidden;
-      emojiBtn.classList.toggle('active', !emojiPanel.hidden);
-      if (!emojiPanel.hidden) {
-        renderEmojis();
-        msgInput.focus();
-      }
+      if (!emojiPanel.hidden) msgInput.focus();
     }
   });
 
@@ -735,21 +203,15 @@
   emojiInput.addEventListener('blur', function () { emojiInput.value = ''; });
 
   // ---------- Panel lampiran ----------
-  attachBtn.addEventListener('click', function (e) {
-    e.stopPropagation();
+  attachBtn.addEventListener('click', function () {
     hide(emojiPanel);
-    emojiBtn.classList.remove('active');
-
     attachPanel.hidden = !attachPanel.hidden;
-    attachBtn.classList.toggle('active', !attachPanel.hidden);
   });
 
   attachPanel.addEventListener('click', function (e) {
     const btn = e.target.closest('button[data-action]');
     if (!btn) return;
     hide(attachPanel);
-    attachBtn.classList.remove('active');
-
     const action = btn.getAttribute('data-action');
     if (action === 'camera') openCamera();
     else if (action === 'gallery') {
@@ -758,16 +220,6 @@
     } else if (action === 'doc') {
       const input = document.getElementById('ctFileDoc');
       if (input) input.click();
-    }
-  });
-
-  // Tutup panel ketika klik di luar
-  document.addEventListener('click', function (e) {
-    if (!composer.contains(e.target) && !attachPanel.contains(e.target) && !emojiPanel.contains(e.target)) {
-      hide(attachPanel);
-      hide(emojiPanel);
-      attachBtn.classList.remove('active');
-      emojiBtn.classList.remove('active');
     }
   });
 
@@ -808,7 +260,6 @@
 
   function openCamera() {
     hide(attachPanel);
-    attachBtn.classList.remove('active');
     if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
       fallbackCamera();
       return;
@@ -962,6 +413,7 @@
       const isVid = file.type.indexOf('video/') === 0;
       if (isImg) blob = await compressImageFile(file);
       else if (isVid) blob = await compressVideoFile(file);
+      // Dokumen tidak bisa dikompres di sisi browser, dikirim apa adanya (ukuran dibatasi di server)
 
       showUploading('Mengirim ' + (blob.name || file.name) + '...');
       const dataUrl = await blobToBase64(blob);
@@ -986,7 +438,7 @@
     }
   }
 
-  // ---------- Render isi pesan ----------
+  // ---------- Render isi pesan (dipakai oleh appendMessage kedua tampilan) ----------
   window.renderChatAttachmentBody = function (msg) {
     if (msg && msg.message_type === 'file') {
       const mime = String(msg.file_mime || '').toLowerCase();

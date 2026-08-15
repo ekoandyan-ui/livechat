@@ -32,7 +32,7 @@
     .msg-admin .msg-meta { text-align: right; }
     .msg .delete-btn { background: none; border: none; color: var(--subtle); font-size: 11px; cursor: pointer; margin-left: 8px; }
     .msg .delete-btn:hover { color: var(--primary); }
-    .chat-input { background: var(--surface); padding: 12px 20px; border-top: 1px solid var(--border); display: flex; align-items: center; gap: 10px; position: fixed; bottom: 0; left: 0; right: 0; z-index: 10; }
+    .chat-input { background: var(--surface); padding: 15px 25px; border-top: 1px solid var(--border); display: flex; gap: 10px; position: fixed; bottom: 0; left: 0; right: 0; z-index: 10; }
     .chat-input input { flex: 1; background: var(--bg); border: 1px solid var(--border); color: var(--text); padding: 12px 15px; border-radius: 8px; font-size: 14px; }
     .chat-input input:focus { outline: none; border-color: var(--primary); }
     .chat-input button { background: var(--primary); border: none; color: #fff; padding: 12px 25px; border-radius: 8px; font-weight: 600; cursor: pointer; }
@@ -111,10 +111,7 @@
 
   <div class="chat-input">
     <%- include('partials/chat-tools', { senderName: adminUser, roomId: roomId, placeholder: 'Ketik pesan sebagai Admin...' }) %>
-    <button id="sendBtn" title="Kirim Pesan" aria-label="Kirim Pesan">
-      <svg viewBox="0 0 24 24"><path d="m22 2-7 20-4-9-9-4Z"></path><path d="M22 2 11 13"></path></svg>
-      <span>Kirim</span>
-    </button>
+    <button id="sendBtn">Kirim</button>
   </div>
 
   <script src="/socket.io/socket.io.js"></script>
