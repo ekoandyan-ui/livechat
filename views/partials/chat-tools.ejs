@@ -1,18 +1,28 @@
 <% if (typeof senderName === 'undefined') senderName = ''; %>
 <% if (typeof roomId === 'undefined') roomId = ''; %>
+<% if (typeof placeholder === 'undefined') placeholder = 'Ketik pesan...'; %>
 
 <!-- =============================================
      Fitur Emoji & Lampiran (dipakai di chat pasien & admin)
      ============================================= -->
 <style>
-  .ct-tools { display: flex; align-items: center; gap: 6px; flex: 0 0 auto; }
-  .ct-tool { flex: 0 0 auto; background: var(--bg); border: 1px solid var(--border); border-radius: 8px; width: 40px; height: 42px; display: inline-flex; align-items: center; justify-content: center; font-size: 19px; cursor: pointer; color: var(--subtle); transition: all .15s ease-in-out; padding: 0; }
-  .ct-tool:hover, .ct-tool.active { color: var(--primary); border-color: var(--primary); background: var(--primary-light); }
+  /* Kotak ketik: input + ikon menyatu dalam satu box */
+  .ct-composer { flex: 1; display: flex; align-items: center; gap: 2px; min-width: 0; background: var(--bg); border: 1px solid var(--border); border-radius: 22px; padding: 4px 6px 4px 14px; transition: border-color .15s ease-in-out, box-shadow .15s ease-in-out; }
+  .ct-composer:focus-within { border-color: var(--primary); box-shadow: 0 0 0 0.15rem rgba(14,165,233,.18); }
+  .ct-composer input { flex: 1; min-width: 0; background: transparent; border: none; padding: 9px 0; font-size: 14px; color: var(--text); }
+  .ct-composer input:focus { outline: none; border: none; box-shadow: none; }
+
+  /* Ikon garis minimalis tanpa background */
+  .ct-tool { flex: 0 0 auto; display: inline-flex; align-items: center; justify-content: center; width: 32px; height: 32px; background: transparent; border: none; padding: 0; color: var(--subtle); cursor: pointer; border-radius: 50%; transition: color .15s ease-in-out, background .15s ease-in-out; }
+  .ct-tool:hover, .ct-tool.active { color: var(--primary); background: rgba(14,165,233,.1); }
+  .ct-tool svg { width: 21px; height: 21px; fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; }
+
   .ct-panel { position: absolute; bottom: calc(100% + 8px); right: 0; background: var(--surface); border: 1px solid var(--border); border-radius: 12px; box-shadow: 0 10px 30px rgba(0,0,0,.15); z-index: 50; }
   .ct-panel[hidden] { display: none; }
   .ct-attach-list { padding: 6px; display: flex; flex-direction: column; min-width: 185px; }
   .ct-attach-list button { display: flex; align-items: center; gap: 10px; background: none; border: none; padding: 10px 12px; border-radius: 8px; font-size: 14px; color: var(--text); cursor: pointer; text-align: left; width: 100%; }
   .ct-attach-list button:hover { background: var(--primary-light); color: var(--primary); }
+  .ct-attach-list button svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; flex: 0 0 auto; }
   .ct-emoji-grid { display: grid; grid-template-columns: repeat(8, 1fr); gap: 4px; padding: 10px; max-width: 320px; max-height: 220px; overflow-y: auto; }
   .ct-emoji-grid button { background: none; border: none; font-size: 24px; padding: 4px; cursor: pointer; border-radius: 6px; line-height: 1; }
   .ct-emoji-grid button:hover { background: var(--primary-light); }
@@ -22,6 +32,18 @@
   .ct-uploading .ct-spinner { width: 16px; height: 16px; border: 2px solid var(--primary-light); border-top-color: var(--primary); border-radius: 50%; animation: ct-spin .8s linear infinite; flex: 0 0 auto; }
   .ct-uploading .ct-u-text { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   @keyframes ct-spin { to { transform: rotate(360deg); } }
+
+  /* Modal kamera (akses kamera langsung dari device) */
+  .ct-camera-modal { position: fixed; inset: 0; background: rgba(15,23,42,.9); z-index: 1000; display: flex; align-items: center; justify-content: center; padding: 20px; }
+  .ct-camera-modal[hidden] { display: none; }
+  .ct-camera-box { background: #000; border-radius: 16px; overflow: hidden; max-width: 520px; width: 100%; position: relative; }
+  .ct-camera-box video { width: 100%; display: block; max-height: 70vh; object-fit: contain; background: #000; }
+  .ct-camera-controls { display: flex; justify-content: center; align-items: center; gap: 28px; padding: 14px; }
+  .ct-cam-btn { width: 54px; height: 54px; border-radius: 50%; border: 2px solid rgba(255,255,255,.9); background: rgba(255,255,255,.12); color: #fff; display: inline-flex; align-items: center; justify-content: center; cursor: pointer; transition: background .15s; }
+  .ct-cam-btn:hover { background: rgba(255,255,255,.28); }
+  .ct-cam-btn svg { width: 24px; height: 24px; fill: none; stroke: #fff; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+  .ct-cam-btn-sm { width: 46px; height: 46px; }
+  .ct-camera-error { padding: 30px; color: #fff; text-align: center; font-size: 14px; }
 
   /* Tampilan lampiran di dalam gelembung pesan */
   .chat-file { display: block; }
@@ -35,30 +57,52 @@
   .chat-file-doc .doc-size { font-size: 11px; opacity: .7; }
 
   @media (max-width: 768px) {
-    .ct-tool { width: 38px; height: 40px; }
+    .ct-composer { border-radius: 20px; }
   }
   @media (max-width: 576px) {
-    .ct-tool { width: 36px; height: 38px; font-size: 17px; }
+    .ct-composer { padding: 3px 4px 3px 10px; }
+    .ct-composer input { font-size: 16px; padding: 8px 0; }
+    .ct-tool { width: 30px; height: 30px; }
+    .ct-tool svg { width: 19px; height: 19px; }
     .ct-emoji-grid { grid-template-columns: repeat(7, 1fr); max-width: 280px; max-height: 180px; }
   }
 </style>
 
-<div class="ct-tools" data-sender="<%= senderName %>" data-room="<%= roomId %>">
-  <button type="button" class="ct-tool" id="ctEmojiBtn" title="Emoji">😊</button>
-  <button type="button" class="ct-tool" id="ctAttachBtn" title="Lampirkan">📎</button>
+<div class="ct-composer ct-tools" data-sender="<%= senderName %>" data-room="<%= roomId %>">
+  <input type="text" id="msgInput" placeholder="<%= placeholder %>" autocomplete="off" />
+
+  <!-- Tombol emoji: di HP membuka keyboard emoji bawaan, di desktop membuka panel -->
+  <button type="button" class="ct-tool" id="ctEmojiBtn" title="Emoji" aria-label="Emoji">
+    <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"></circle><path d="M8.5 14.5a4.3 4.3 0 0 0 7 0"></path><path d="M9 9.6h.01"></path><path d="M15 9.6h.01"></path></svg>
+  </button>
+
+  <!-- Tombol lampiran -->
+  <button type="button" class="ct-tool" id="ctAttachBtn" title="Lampirkan" aria-label="Lampirkan">
+    <svg viewBox="0 0 24 24"><path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"></path></svg>
+  </button>
 
   <!-- Input tersembunyi untuk membuka keyboard emoji bawaan HP -->
   <input type="text" class="ct-emoji-input" id="ctEmojiInput" inputmode="emoji" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" />
 
-  <input type="file" id="ctFileCamera" accept="image/*,video/*" capture="environment" hidden />
+  <!-- Input file fallback (jika kamera browser tidak tersedia / ditolak) -->
+  <input type="file" id="ctFileCamera" accept="image/*" capture="environment" hidden />
   <input type="file" id="ctFileGallery" accept="image/*,video/*" hidden />
   <input type="file" id="ctFileDoc" accept=".pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.csv,.zip,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document" hidden />
 
   <div class="ct-panel" id="ctAttachPanel" hidden>
     <div class="ct-attach-list">
-      <button type="button" data-target="ctFileCamera">📷 Kamera</button>
-      <button type="button" data-target="ctFileGallery">🖼️ Galeri</button>
-      <button type="button" data-target="ctFileDoc">📄 Dokumen</button>
+      <button type="button" data-action="camera">
+        <svg viewBox="0 0 24 24"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"></path><circle cx="12" cy="13" r="4"></circle></svg>
+        Kamera
+      </button>
+      <button type="button" data-action="gallery">
+        <svg viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2"></rect><circle cx="8.5" cy="8.5" r="1.5"></circle><path d="M21 15l-5-5L5 21"></path></svg>
+        Galeri
+      </button>
+      <button type="button" data-action="doc">
+        <svg viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><path d="M14 2v6h6"></path><path d="M16 13H8"></path><path d="M16 17H8"></path></svg>
+        Dokumen
+      </button>
     </div>
   </div>
 
@@ -72,12 +116,30 @@
   </div>
 </div>
 
+<!-- Modal kamera -->
+<div class="ct-camera-modal" id="ctCameraModal" hidden>
+  <div class="ct-camera-box">
+    <video id="ctCameraVideo" autoplay playsinline muted></video>
+    <div class="ct-camera-controls">
+      <button type="button" class="ct-cam-btn ct-cam-btn-sm" id="ctCameraSwitch" title="Ganti kamera" aria-label="Ganti kamera">
+        <svg viewBox="0 0 24 24"><path d="M1 4v6h6"></path><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"></path></svg>
+      </button>
+      <button type="button" class="ct-cam-btn" id="ctCameraCapture" title="Ambil foto" aria-label="Ambil foto">
+        <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="8"></circle><circle cx="12" cy="12" r="3"></circle></svg>
+      </button>
+      <button type="button" class="ct-cam-btn ct-cam-btn-sm" id="ctCameraClose" title="Tutup" aria-label="Tutup">
+        <svg viewBox="0 0 24 24"><path d="M18 6 6 18"></path><path d="M6 6l12 12"></path></svg>
+      </button>
+    </div>
+  </div>
+</div>
+
 <script>
 (function () {
-  const tools = document.querySelector('.ct-tools');
-  if (!tools) return;
-  const roomId = tools.getAttribute('data-room') || '';
-  const senderName = tools.getAttribute('data-sender') || '';
+  const composer = document.querySelector('.ct-tools');
+  if (!composer) return;
+  const roomId = composer.getAttribute('data-room') || '';
+  const senderName = composer.getAttribute('data-sender') || '';
   const msgInput = document.getElementById('msgInput');
   const emojiBtn = document.getElementById('ctEmojiBtn');
   const attachBtn = document.getElementById('ctAttachBtn');
@@ -86,6 +148,8 @@
   const emojiInput = document.getElementById('ctEmojiInput');
   const uploading = document.getElementById('ctUploading');
   const uploadingText = document.getElementById('ctUploadingText');
+  const cameraModal = document.getElementById('ctCameraModal');
+  const cameraVideo = document.getElementById('ctCameraVideo');
   const isMobile = /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent);
 
   function show(el) { el.hidden = false; }
@@ -117,7 +181,6 @@
     grid.appendChild(b);
   });
 
-  // Tombol emoji: di HP membuka keyboard emoji bawaan, di desktop membuka panel
   emojiBtn.addEventListener('click', function () {
     hide(attachPanel);
     if (isMobile) {
@@ -130,7 +193,6 @@
     }
   });
 
-  // Emoji dari keyboard bawaan HP masuk ke kotak pesan
   emojiInput.addEventListener('input', function () {
     if (emojiInput.value) {
       msgInput.value += emojiInput.value;
@@ -140,18 +202,25 @@
   });
   emojiInput.addEventListener('blur', function () { emojiInput.value = ''; });
 
-  // ---------- Lampiran ----------
+  // ---------- Panel lampiran ----------
   attachBtn.addEventListener('click', function () {
     hide(emojiPanel);
     attachPanel.hidden = !attachPanel.hidden;
   });
 
   attachPanel.addEventListener('click', function (e) {
-    const btn = e.target.closest('button[data-target]');
+    const btn = e.target.closest('button[data-action]');
     if (!btn) return;
     hide(attachPanel);
-    const input = document.getElementById(btn.getAttribute('data-target'));
-    if (input) input.click();
+    const action = btn.getAttribute('data-action');
+    if (action === 'camera') openCamera();
+    else if (action === 'gallery') {
+      const input = document.getElementById('ctFileGallery');
+      if (input) input.click();
+    } else if (action === 'doc') {
+      const input = document.getElementById('ctFileDoc');
+      if (input) input.click();
+    }
   });
 
   ['ctFileCamera', 'ctFileGallery', 'ctFileDoc'].forEach(function (id) {
@@ -162,6 +231,71 @@
       input.value = '';
       if (file) uploadFile(file);
     });
+  });
+
+  // ---------- Kamera (akses kamera langsung dari device) ----------
+  let cameraStream = null;
+  let cameraFacing = 'environment';
+
+  function stopCamera() {
+    if (cameraStream) {
+      cameraStream.getTracks().forEach(function (t) { t.stop(); });
+      cameraStream = null;
+    }
+    if (cameraVideo) cameraVideo.srcObject = null;
+  }
+
+  function startCamera() {
+    stopCamera();
+    return navigator.mediaDevices.getUserMedia({
+      video: { facingMode: cameraFacing, width: { ideal: 1920 }, height: { ideal: 1920 } },
+      audio: false
+    }).then(function (stream) {
+      cameraStream = stream;
+      cameraVideo.srcObject = stream;
+      show(cameraModal);
+      cameraVideo.play().catch(function () {});
+    });
+  }
+
+  function openCamera() {
+    hide(attachPanel);
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+      fallbackCamera();
+      return;
+    }
+    startCamera().catch(function () { fallbackCamera(); });
+  }
+
+  function fallbackCamera() {
+    const input = document.getElementById('ctFileCamera');
+    if (input) input.click();
+  }
+
+  document.getElementById('ctCameraCapture').addEventListener('click', function () {
+    if (!cameraVideo || !cameraVideo.videoWidth) return;
+    const canvas = document.createElement('canvas');
+    canvas.width = cameraVideo.videoWidth;
+    canvas.height = cameraVideo.videoHeight;
+    canvas.getContext('2d').drawImage(cameraVideo, 0, 0);
+    stopCamera();
+    hide(cameraModal);
+    canvas.toBlob(function (blob) {
+      if (blob) {
+        const file = new File([blob], 'kamera_' + Date.now() + '.jpg', { type: 'image/jpeg' });
+        uploadFile(file);
+      }
+    }, 'image/jpeg', 0.92);
+  });
+
+  document.getElementById('ctCameraSwitch').addEventListener('click', function () {
+    cameraFacing = cameraFacing === 'environment' ? 'user' : 'environment';
+    startCamera().catch(function () { fallbackCamera(); });
+  });
+
+  document.getElementById('ctCameraClose').addEventListener('click', function () {
+    stopCamera();
+    hide(cameraModal);
   });
 
   // ---------- Kompresi ----------

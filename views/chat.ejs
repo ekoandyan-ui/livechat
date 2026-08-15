@@ -112,8 +112,7 @@
   </div>
 
   <div class="chat-input">
-    <input type="text" id="msgInput" placeholder="Ketik pesan..." autocomplete="off" />
-    <%- include('partials/chat-tools', { senderName: userName, roomId: roomId }) %>
+    <%- include('partials/chat-tools', { senderName: userName, roomId: roomId, placeholder: 'Ketik pesan...' }) %>
     <button id="sendBtn">Kirim</button>
   </div>
 
