@@ -71,7 +71,6 @@
     <div>
       <h5><%= rumahSakit %></h5>
     </div>
-    <span class="online-badge" id="onlineBadge">Online</span>
   </div>
 
   <div class="chat-messages" id="chatMessages">
@@ -109,7 +108,6 @@
     const chatMessages = document.getElementById('chatMessages');
     const msgInput = document.getElementById('msgInput');
     const sendBtn = document.getElementById('sendBtn');
-    const onlineBadge = document.getElementById('onlineBadge');
 
     // Fix: input chat selalu menyesuaikan tepat di atas keyboard HP (semua browser)
     const headerEl = document.querySelector('.chat-header');
@@ -214,10 +212,6 @@
         const exists = chatMessages.querySelector(`[data-id="${data.id}"]`);
         if (!exists) appendMessage(data);
       }
-    });
-
-    socket.on('user-count', (count) => {
-      onlineBadge.textContent = count + ' Online';
     });
   </script>
 </body>
