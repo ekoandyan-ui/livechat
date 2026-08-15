@@ -81,7 +81,26 @@
         <div class="msg <%= msg.sender_name === userName ? 'msg-mine' : 'msg-other' %>" data-id="<%= msg.id %>">
           <div class="msg-bubble">
             <% if (msg.sender_name !== userName) { %><span style="font-size:10px;background:var(--primary);padding:1px 6px;border-radius:8px;margin-right:5px;">ADMIN</span><% } %>
-            <%= msg.message %>
+            <% if (msg.message_type === 'file') { %>
+              <div class="chat-file">
+                <% var fm = (msg.file_mime || '').toLowerCase(); %>
+                <% if (fm.indexOf('image/') === 0) { %>
+                  <img class="chat-file-img" src="/api/file/<%= msg.id %>" alt="<%= msg.file_name %>" onclick="window.open('/api/file/<%= msg.id %>','_blank')" />
+                <% } else if (fm.indexOf('video/') === 0) { %>
+                  <video class="chat-file-video" controls preload="metadata" src="/api/file/<%= msg.id %>"></video>
+                <% } else { %>
+                  <a class="chat-file-doc" href="/api/file/<%= msg.id %>" target="_blank">
+                    <span class="doc-icon">📄</span>
+                    <span class="doc-meta">
+                      <span class="doc-name"><%= msg.file_name || 'Dokumen' %></span>
+                      <span class="doc-size"><%= msg.file_size ? (msg.file_size / 1024).toFixed(1) : '0' %> KB</span>
+                    </span>
+                  </a>
+                <% } %>
+              </div>
+            <% } else { %>
+              <%= msg.message %>
+            <% } %>
           </div>
           <div class="msg-meta">
             <strong><%= msg.sender_name %></strong>
@@ -94,6 +113,7 @@
 
   <div class="chat-input">
     <input type="text" id="msgInput" placeholder="Ketik pesan..." autocomplete="off" />
+    <%- include('partials/chat-tools', { senderName: userName, roomId: roomId }) %>
     <button id="sendBtn">Kirim</button>
   </div>
 
@@ -185,7 +205,7 @@
       div.innerHTML = `
         <div class="msg-bubble">
           ${data.sender_name !== myName ? '<span style="font-size:10px;background:var(--primary);padding:1px 6px;border-radius:8px;margin-right:5px;">ADMIN</span>' : ''}
-          ${data.message}
+          ${window.renderChatAttachmentBody(data)}
         </div>
         <div class="msg-meta">
           <strong>${data.sender_name}</strong>

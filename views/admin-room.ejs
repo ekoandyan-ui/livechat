@@ -73,7 +73,28 @@
     <% } else { %>
       <% messages.forEach(msg => { %>
         <div class="msg <%= msg.sender_name === adminUser ? 'msg-admin' : 'msg-user' %>" data-id="<%= msg.id %>">
-          <div class="msg-bubble"><%= msg.message %></div>
+          <div class="msg-bubble">
+            <% if (msg.message_type === 'file') { %>
+              <div class="chat-file">
+                <% var fm = (msg.file_mime || '').toLowerCase(); %>
+                <% if (fm.indexOf('image/') === 0) { %>
+                  <img class="chat-file-img" src="/api/file/<%= msg.id %>" alt="<%= msg.file_name %>" onclick="window.open('/api/file/<%= msg.id %>','_blank')" />
+                <% } else if (fm.indexOf('video/') === 0) { %>
+                  <video class="chat-file-video" controls preload="metadata" src="/api/file/<%= msg.id %>"></video>
+                <% } else { %>
+                  <a class="chat-file-doc" href="/api/file/<%= msg.id %>" target="_blank">
+                    <span class="doc-icon">📄</span>
+                    <span class="doc-meta">
+                      <span class="doc-name"><%= msg.file_name || 'Dokumen' %></span>
+                      <span class="doc-size"><%= msg.file_size ? (msg.file_size / 1024).toFixed(1) : '0' %> KB</span>
+                    </span>
+                  </a>
+                <% } %>
+              </div>
+            <% } else { %>
+              <%= msg.message %>
+            <% } %>
+          </div>
           <div class="msg-meta">
             <strong><%= msg.sender_name %></strong>
             &middot; <%= new Date(msg.created_at).toLocaleString('id-ID', { day:'2-digit', month:'2-digit', year:'numeric', hour:'2-digit', minute:'2-digit' }) %>
@@ -90,6 +111,7 @@
 
   <div class="chat-input">
     <input type="text" id="msgInput" placeholder="Ketik pesan sebagai Admin..." autocomplete="off" />
+    <%- include('partials/chat-tools', { senderName: adminUser, roomId: roomId }) %>
     <button id="sendBtn">Kirim</button>
   </div>
 
@@ -144,7 +166,7 @@
       div.className = 'msg ' + (isMine ? 'msg-admin' : 'msg-user');
       div.dataset.id = data.id;
       div.innerHTML = `
-        <div class="msg-bubble">${data.message}</div>
+        <div class="msg-bubble">${window.renderChatAttachmentBody(data)}</div>
         <div class="msg-meta">
           <strong>${data.sender_name}</strong>
           &middot; ${formatTime(data.created_at)}

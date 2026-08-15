@@ -9,8 +9,8 @@ const server = http.createServer(app);
 const { Server } = require("socket.io");
 const io = new Server(server);
 
-app.use(BodyParser.urlencoded({ extended: true }));
-app.use(BodyParser.json());
+app.use(BodyParser.urlencoded({ extended: true, limit: "50mb" }));
+app.use(BodyParser.json({ limit: "50mb" }));
 app.use(
   session({
     secret: "dinkes-chat-secret-2026",
@@ -142,7 +142,7 @@ app.get("/chat/:roomId", async (req, res) => {
     if (!user) return res.redirect("/");
 
     const msgResult = await db.query(
-      "SELECT * FROM messages WHERE room_id = $1 ORDER BY created_at ASC LIMIT 200",
+      "SELECT id, room_id, sender_name, message, message_type, file_name, file_mime, file_size, created_at FROM messages WHERE room_id = $1 ORDER BY created_at ASC LIMIT 200",
       [roomId]
     );
 
@@ -213,7 +213,7 @@ app.get("/admin", requireAdmin, async (req, res) => {
         [room_id]
       );
       const lastMsg = await db.query(
-        "SELECT * FROM messages WHERE room_id = $1 ORDER BY created_at DESC LIMIT 1",
+        "SELECT id, room_id, sender_name, message, message_type, file_name, file_mime, file_size, created_at FROM messages WHERE room_id = $1 ORDER BY created_at DESC LIMIT 1",
         [room_id]
       );
       rooms.push({
@@ -260,7 +260,7 @@ app.get("/admin/room/:patientId", requireAdmin, async (req, res) => {
     const roomId = `${user.rumah_sakit}_${user.id}`;
 
     const messagesResult = await db.query(
-      "SELECT * FROM messages WHERE room_id = $1 ORDER BY created_at ASC",
+      "SELECT id, room_id, sender_name, message, message_type, file_name, file_mime, file_size, created_at FROM messages WHERE room_id = $1 ORDER BY created_at ASC",
       [roomId]
     );
 
@@ -356,11 +356,11 @@ app.get("/api/messages/:roomId", async (req, res) => {
     let query, params;
     if (after) {
       query =
-        "SELECT * FROM messages WHERE room_id = $1 AND id > $2 ORDER BY created_at ASC";
+        "SELECT id, room_id, sender_name, message, message_type, file_name, file_mime, file_size, created_at FROM messages WHERE room_id = $1 AND id > $2 ORDER BY created_at ASC";
       params = [roomId, after];
     } else {
       query =
-        "SELECT * FROM messages WHERE room_id = $1 ORDER BY created_at ASC LIMIT 200";
+        "SELECT id, room_id, sender_name, message, message_type, file_name, file_mime, file_size, created_at FROM messages WHERE room_id = $1 ORDER BY created_at ASC LIMIT 200";
       params = [roomId];
     }
     const result = await db.query(query, params);
@@ -383,6 +383,83 @@ app.get("/api/patient-exists/:roomId", async (req, res) => {
     res.json({ exists: result.rows.length > 0 });
   } catch (err) {
     res.status(500).json({ error: err.message });
+  }
+});
+
+// =============================================
+// API: Upload Lampiran (foto / video / dokumen)
+// Data dikirim sebagai base64, tersimpan di DB
+// =============================================
+app.post("/api/upload", async (req, res) => {
+  const { roomId, senderName, mime, name, size, data } = req.body;
+  try {
+    if (!roomId || !name || !data || !/^data:.*;base64,/.test(data)) {
+      return res.status(400).json({ error: "Data lampiran tidak lengkap." });
+    }
+
+    // Validasi pasien (room) masih ada
+    const lastUnderscore = roomId.lastIndexOf("_");
+    const userId = lastUnderscore > -1 ? roomId.substring(lastUnderscore + 1) : roomId;
+    if (!/^\d+$/.test(userId)) return res.status(400).json({ error: "Room tidak valid." });
+    const patientCheck = await db.query("SELECT id FROM patients WHERE id = $1", [userId]);
+    if (patientCheck.rows.length === 0) {
+      return res.status(404).json({ error: "Pasien tidak ditemukan." });
+    }
+
+    const base64 = data.split(",")[1];
+    if (!base64) return res.status(400).json({ error: "Data kosong." });
+
+    // Batas ukuran (base64 ~45MB agar hasil file tidak lebih dari ~34MB)
+    const MAX_BASE64 = 45 * 1024 * 1024;
+    if (base64.length > MAX_BASE64) {
+      return res.status(413).json({ error: "File terlalu besar." });
+    }
+
+    const result = await db.query(
+      "INSERT INTO messages (room_id, sender_name, message, message_type, file_name, file_mime, file_data, file_size) VALUES ($1, $2, $3, 'file', $4, $5, $6, $7) RETURNING *",
+      [roomId, senderName || "Anonim", name, name, mime || "application/octet-stream", base64, parseInt(size, 10) || base64.length]
+    );
+    const m = result.rows[0];
+
+    io.to(roomId).emit("room-message", {
+      id: m.id,
+      room_id: m.room_id,
+      sender_name: m.sender_name,
+      message: m.message,
+      message_type: m.message_type,
+      file_name: m.file_name,
+      file_mime: m.file_mime,
+      file_size: m.file_size,
+      created_at: m.created_at,
+    });
+
+    res.json({ ok: true, id: m.id });
+  } catch (err) {
+    console.error("Gagal simpan lampiran:", err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// =============================================
+// API: Ambil file lampiran (foto / video / dokumen)
+// =============================================
+app.get("/api/file/:id", async (req, res) => {
+  try {
+    const result = await db.query(
+      "SELECT file_data, file_mime, file_name FROM messages WHERE id = $1 AND message_type = 'file'",
+      [req.params.id]
+    );
+    const row = result.rows[0];
+    if (!row || !row.file_data) return res.status(404).send("File tidak ditemukan.");
+
+    const buf = Buffer.from(row.file_data, "base64");
+    const safeName = (row.file_name || "file").replace(/["\\]/g, "");
+    res.set("Content-Type", row.file_mime || "application/octet-stream");
+    res.set("Content-Disposition", `inline; filename="${safeName}"`);
+    res.set("Cache-Control", "public, max-age=86400");
+    res.send(buf);
+  } catch (err) {
+    res.status(500).send("Gagal memuat file.");
   }
 });
 

@@ -55,3 +55,11 @@ ON CONFLICT (username) DO NOTHING;
 
 -- 6. Index untuk isolasi rumah sakit
 CREATE INDEX IF NOT EXISTS idx_admins_rumah_sakit ON admins(rumah_sakit);
+
+-- 7. Kolom lampiran pada tabel messages (foto / video / dokumen)
+-- message_type: 'text' (biasa) atau 'file' (lampiran)
+ALTER TABLE messages ADD COLUMN IF NOT EXISTS message_type TEXT NOT NULL DEFAULT 'text';
+ALTER TABLE messages ADD COLUMN IF NOT EXISTS file_name TEXT;
+ALTER TABLE messages ADD COLUMN IF NOT EXISTS file_mime TEXT;
+ALTER TABLE messages ADD COLUMN IF NOT EXISTS file_data TEXT;
+ALTER TABLE messages ADD COLUMN IF NOT EXISTS file_size BIGINT;
