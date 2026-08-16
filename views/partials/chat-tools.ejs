@@ -13,10 +13,10 @@
   .ct-composer input:focus { outline: none; border: none; box-shadow: none; }
 
   /* Ikon garis minimalis tanpa background */
-  .ct-tool { flex: 0 0 auto; display: inline-flex; align-items: center; justify-content: center; width: 32px; height: 32px; background: transparent; border: none; padding: 0; color: var(--subtle); cursor: pointer; border-radius: 50%; -webkit-tap-highlight-color: transparent; transition: color .15s ease-in-out, background .15s ease-in-out; }
-  .ct-tool:hover, .ct-tool.active { color: var(--primary); }
-  .ct-tool:focus, .ct-tool:focus-visible { outline: none; box-shadow: none; }
-  .ct-tool svg { width: 24px; height: 24px; fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; }
+  button.ct-tool { flex: 0 0 auto; display: inline-flex; align-items: center; justify-content: center; width: 32px; height: 32px; background: transparent !important; border: none !important; padding: 0 !important; margin: 0; color: var(--subtle); cursor: pointer; border-radius: 50% !important; box-shadow: none !important; -webkit-tap-highlight-color: transparent; transition: color .15s ease-in-out, background .15s ease-in-out; }
+  button.ct-tool:hover, button.ct-tool.active { color: var(--primary); background: transparent !important; }
+  button.ct-tool:focus, button.ct-tool:focus-visible { outline: none !important; box-shadow: none !important; background: transparent !important; }
+  button.ct-tool svg { width: 24px; height: 24px; fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; }
 
   .ct-panel { position: absolute; bottom: calc(100% + 8px); right: 0; background: var(--surface); border: 1px solid var(--border); border-radius: 12px; box-shadow: 0 10px 30px rgba(0,0,0,.15); z-index: 50; }
   .ct-panel[hidden] { display: none; }
@@ -63,8 +63,8 @@
   @media (max-width: 576px) {
     .ct-composer { padding: 3px 4px 3px 10px; }
     .ct-composer input { font-size: 16px; padding: 8px 0; }
-    .ct-tool { width: 30px; height: 30px; }
-    .ct-tool svg { width: 22px; height: 22px; }
+    button.ct-tool { width: 30px; height: 30px; }
+    button.ct-tool svg { width: 22px; height: 22px; }
     .ct-emoji-grid { grid-template-columns: repeat(7, 1fr); max-width: 280px; max-height: 180px; }
   }
 </style>
