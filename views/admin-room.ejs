@@ -24,7 +24,7 @@
     .chat-header .patient-name:hover { color: var(--primary); }
     .chat-messages { position: fixed; left: 0; right: 0; overflow-y: auto; -webkit-overflow-scrolling: touch; padding: 20px 25px; }
     .msg { margin-bottom: 15px; }
-    .msg-admin { margin-left: auto; margin-right: -25px; }
+    .msg-admin { margin-left: auto; margin-right: 0; }
     .msg .msg-bubble { padding: 10px 15px; border-radius: 12px; font-size: 14px; line-height: 1.5; word-wrap: break-word; display: inline-block; width: fit-content; min-width: 40%; max-width: 90%; }
     .msg-admin .msg-bubble { background: var(--primary); color: #fff; border-bottom-right-radius: 4px; }
     .msg-user .msg-bubble { background: var(--surface); color: var(--text); border: 1px solid var(--border); border-bottom-left-radius: 4px; }
@@ -42,7 +42,7 @@
     @media (max-width: 768px) {
       .chat-header { padding: 12px 15px; flex-wrap: wrap; gap: 8px; }
       .chat-messages { padding: 15px; }
-      .msg-admin { margin-right: -15px; }
+      .msg { }
       .chat-input { padding: 12px 15px; }
       .chat-input input { padding: 11px 12px; font-size: 13px; }
       .chat-input button { padding: 11px 18px; }
@@ -52,7 +52,7 @@
       .chat-header { padding: 10px 12px; gap: 8px; }
       .chat-header .back-btn { margin-right: 8px; font-size: 14px; }
       .chat-header .patient-name { font-size: 14px; }
-      .msg-admin { margin-right: -12px; }
+      .msg { }
       .chat-input input { font-size: 16px; }
       .chat-input button { padding: 11px 14px; }
       .no-msg { padding: 40px 15px; }
