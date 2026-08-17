@@ -23,8 +23,8 @@
     .chat-header .room-label { color: var(--subtle); font-size: 13px; }
     .chat-header .hospital-tag { color: var(--primary); font-size: 12px; font-weight: 600; background: var(--primary-light); padding: 4px 10px; border-radius: 8px; margin-top: 4px; display: inline-block; }
     .online-badge { background: #27ae60; color: #fff; font-size: 12px; padding: 3px 10px; border-radius: 20px; }
-    .chat-messages { position: fixed; left: 0; right: 0; overflow-y: auto; -webkit-overflow-scrolling: touch; padding: 20px 0; }
-    .msg { margin-bottom: 15px; padding: 0 10px; }
+    .chat-messages { position: fixed; left: 0; right: 0; overflow-y: auto; -webkit-overflow-scrolling: touch; padding: 20px 25px; }
+    .msg { margin-bottom: 15px; }
     .msg-mine { margin-left: auto; margin-right: 0; }
     .msg .msg-bubble { padding: 10px 15px; border-radius: 12px; font-size: 14px; line-height: 1.5; word-wrap: break-word; display: inline-block; width: fit-content; min-width: 40%; max-width: 90%; }
     .msg-mine .msg-bubble { background: var(--primary); color: #fff; border-bottom-right-radius: 4px; }
@@ -42,8 +42,8 @@
     @media (max-width: 768px) {
       .chat-header { padding: 12px 15px; gap: 8px; }
       .chat-header h5 { font-size: 16px; }
-      .chat-messages { padding: 15px 0; }
-      .msg { padding: 0 8px; }
+      .chat-messages { padding: 15px; }
+      .msg { }
       .chat-input { padding: 12px 15px; }
       .chat-input input { padding: 11px 12px; font-size: 13px; }
       .chat-input button { padding: 11px 18px; }
@@ -55,8 +55,8 @@
       .chat-header .room-label { font-size: 11px; word-break: break-word; }
       .chat-header .hospital-tag { font-size: 11px; padding: 3px 8px; margin-top: 3px; }
       .online-badge { font-size: 11px; padding: 3px 8px; }
-      .chat-messages { padding: 12px 0; }
-      .msg { margin-bottom: 12px; padding: 0 6px; }
+      .chat-messages { padding: 12px; }
+      .msg { margin-bottom: 12px; }
       .msg .msg-bubble { padding: 9px 12px; font-size: 14px; }
       .msg .msg-meta { font-size: 10px; }
       .chat-input { padding: 10px 12px; gap: 8px; }
