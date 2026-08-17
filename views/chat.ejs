@@ -80,7 +80,6 @@
       <% messages.forEach(msg => { %>
         <div class="msg <%= msg.sender_name === userName ? 'msg-mine' : 'msg-other' %>" data-id="<%= msg.id %>">
           <div class="msg-bubble">
-            <% if (msg.sender_name !== userName) { %><span style="font-size:10px;background:var(--primary);padding:1px 6px;border-radius:8px;margin-right:5px;">ADMIN</span><% } %>
             <% if (msg.message_type === 'file') { %>
               <div class="chat-file">
                 <% var fm = (msg.file_mime || '').toLowerCase(); %>
@@ -103,8 +102,7 @@
             <% } %>
           </div>
           <div class="msg-meta">
-            <strong><%= msg.sender_name %></strong>
-            &middot; <%= new Date(msg.created_at).toLocaleString('id-ID', { day:'2-digit', month:'2-digit', year:'numeric', hour:'2-digit', minute:'2-digit' }) %>
+            <%= new Date(msg.created_at).toLocaleString('id-ID', { day:'2-digit', month:'2-digit', year:'numeric', hour:'2-digit', minute:'2-digit' }) %>
           </div>
         </div>
       <% }) %>
@@ -203,12 +201,10 @@
       div.dataset.id = data.id;
       div.innerHTML = `
         <div class="msg-bubble">
-          ${data.sender_name !== myName ? '<span style="font-size:10px;background:var(--primary);padding:1px 6px;border-radius:8px;margin-right:5px;">ADMIN</span>' : ''}
           ${window.renderChatAttachmentBody(data)}
         </div>
         <div class="msg-meta">
-          <strong>${data.sender_name}</strong>
-          &middot; ${formatTime(data.created_at)}
+          ${formatTime(data.created_at)}
         </div>
       `;
       chatMessages.appendChild(div);
