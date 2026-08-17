@@ -23,14 +23,16 @@
     .chat-header .room-label { color: var(--subtle); font-size: 13px; }
     .chat-header .hospital-tag { color: var(--primary); font-size: 12px; font-weight: 600; background: var(--primary-light); padding: 4px 10px; border-radius: 8px; margin-top: 4px; display: inline-block; }
     .online-badge { background: #27ae60; color: #fff; font-size: 12px; padding: 3px 10px; border-radius: 20px; }
-    .chat-messages { position: fixed; left: 0; right: 0; overflow-y: auto; -webkit-overflow-scrolling: touch; padding: 20px 25px; }
-    .msg { margin-bottom: 15px; }
-    .msg-mine { margin-left: auto; margin-right: 0; }
-    .msg .msg-bubble { padding: 10px 15px; border-radius: 12px; font-size: 14px; line-height: 1.5; word-wrap: break-word; display: inline-block; width: fit-content; min-width: 40%; max-width: 90%; }
-    .msg-mine .msg-bubble { background: var(--primary); color: #fff; border-bottom-right-radius: 4px; }
-    .msg-other .msg-bubble { background: var(--surface); color: var(--text); border: 1px solid var(--border); border-bottom-left-radius: 4px; }
+    .chat-messages { position: fixed; left: 0; right: 0; overflow-y: auto; -webkit-overflow-scrolling: touch; padding: 20px 25px; display: flex; flex-direction: column; }
+    .msg { margin-bottom: 15px; display: flex; flex-direction: column; width: 100%; }
+    .msg-mine { align-items: flex-end; }
+    .msg-other { align-items: flex-start; }
+    .msg .msg-bubble { padding: 10px 15px; border-radius: 12px; font-size: 14px; line-height: 1.5; word-wrap: break-word; word-break: break-word; max-width: 85%; width: fit-content; }
+    .msg-mine .msg-bubble { background: var(--primary); color: #fff; border-bottom-right-radius: 4px; text-align: left; }
+    .msg-other .msg-bubble { background: var(--surface); color: var(--text); border: 1px solid var(--border); border-bottom-left-radius: 4px; text-align: left; }
     .msg .msg-meta { font-size: 11px; color: var(--subtle); margin-top: 4px; }
     .msg-mine .msg-meta { text-align: right; }
+    .msg-other .msg-meta { text-align: left; }
     .no-msg { text-align: center; color: var(--subtle); padding: 60px 20px; font-size: 14px; }
     .chat-input { background: var(--surface); padding: 15px 25px; border-top: 1px solid var(--border); display: flex; gap: 10px; position: fixed; bottom: 0; left: 0; right: 0; z-index: 10; }
     .chat-input input { flex: 1; background: var(--bg); border: 1px solid var(--border); color: var(--text); padding: 12px 15px; border-radius: 8px; font-size: 14px; }

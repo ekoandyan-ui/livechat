@@ -22,14 +22,16 @@
     .chat-header .back-btn { color: var(--primary); text-decoration: none; font-weight: 600; margin-right: 15px; }
     .chat-header .patient-name { color: var(--text); font-size: 16px; font-weight: 600; text-decoration: none; border-bottom: 2px dashed var(--primary); }
     .chat-header .patient-name:hover { color: var(--primary); }
-    .chat-messages { position: fixed; left: 0; right: 0; overflow-y: auto; -webkit-overflow-scrolling: touch; padding: 20px 25px; }
-    .msg { margin-bottom: 15px; }
-    .msg-admin { margin-left: auto; margin-right: 0; }
-    .msg .msg-bubble { padding: 10px 15px; border-radius: 12px; font-size: 14px; line-height: 1.5; word-wrap: break-word; display: inline-block; width: fit-content; min-width: 40%; max-width: 90%; }
-    .msg-admin .msg-bubble { background: var(--primary); color: #fff; border-bottom-right-radius: 4px; }
-    .msg-user .msg-bubble { background: var(--surface); color: var(--text); border: 1px solid var(--border); border-bottom-left-radius: 4px; }
+    .chat-messages { position: fixed; left: 0; right: 0; overflow-y: auto; -webkit-overflow-scrolling: touch; padding: 20px 25px; display: flex; flex-direction: column; }
+    .msg { margin-bottom: 15px; display: flex; flex-direction: column; width: 100%; }
+    .msg-admin { align-items: flex-end; }
+    .msg-user { align-items: flex-start; }
+    .msg .msg-bubble { padding: 10px 15px; border-radius: 12px; font-size: 14px; line-height: 1.5; word-wrap: break-word; word-break: break-word; max-width: 85%; width: fit-content; }
+    .msg-admin .msg-bubble { background: var(--primary); color: #fff; border-bottom-right-radius: 4px; text-align: left; }
+    .msg-user .msg-bubble { background: var(--surface); color: var(--text); border: 1px solid var(--border); border-bottom-left-radius: 4px; text-align: left; }
     .msg .msg-meta { font-size: 11px; color: var(--subtle); margin-top: 4px; }
     .msg-admin .msg-meta { text-align: right; }
+    .msg-user .msg-meta { text-align: left; }
     .msg .delete-btn { background: none; border: none; color: var(--subtle); font-size: 11px; cursor: pointer; margin-left: 8px; }
     .msg .delete-btn:hover { color: var(--primary); }
     .chat-input { background: var(--surface); padding: 15px 25px; border-top: 1px solid var(--border); display: flex; gap: 10px; position: fixed; bottom: 0; left: 0; right: 0; z-index: 10; }
