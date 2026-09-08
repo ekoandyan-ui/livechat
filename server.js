@@ -1,3 +1,4 @@
+require("dotenv").config({ override: true });
 const express = require("express");
 const { Pool } = require("pg");
 const BodyParser = require("body-parser");
