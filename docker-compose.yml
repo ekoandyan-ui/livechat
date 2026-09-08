@@ -1,5 +1,3 @@
-name: live-chat-yankes
-
 services:
   db:
     image: postgres:18-alpine
