@@ -58,13 +58,14 @@
   .msg-mine .msg-quote-text { color: #e6f2fe; }
 
   /* Mode seleksi pesan */
-  #chatMessages .msg { -webkit-touch-callout: none; -webkit-user-select: none; user-select: none; }
-  /* Highlight seleksi: overlay biru transparan full-width DI ATAS bubble,
-     tinggi mengikuti tinggi bubble (sedikit lebih tinggi), per pesan terpilih. */
+  #chatMessages .msg { -webkit-touch-callout: none; -webkit-user-select: none; user-select: none; touch-action: pan-y; }
+  /* Highlight seleksi: overlay biru transparan full-width (kiri-kanan) DI ATAS
+     bubble, kotak tanpa lengkungan, lebih tinggi & lebih rendah dari bubble,
+     per pesan terpilih. */
   #chatMessages .msg.selected { position: relative; }
   #chatMessages .msg.selected::before {
-    content: ''; position: absolute; left: 0; right: 0; top: -4px; bottom: 22px;
-    background: rgba(14,165,233,.32); z-index: 5; pointer-events: none; border-radius: 14px;
+    content: ''; position: absolute; left: 0; right: 0; top: -8px; bottom: 4px;
+    background: rgba(14,165,233,.32); z-index: 5; pointer-events: none; border-radius: 0;
   }
   #chatMessages .msg.ct-jump .msg-bubble { animation: ctFlash 1.8s ease; }
   @keyframes ctFlash { 0% { outline: 3px solid var(--primary); } 100% { outline: 3px solid transparent; } }
@@ -767,6 +768,10 @@
   var pressStart = null;
   var longFired = false;
 
+  // ---------- Geser ke kanan untuk balas (swipe to reply) ----------
+  var swipe = null;       // { el, id, x, y }
+  var swipeFired = false;
+
   function cancelPress() {
     clearTimeout(pressTimer);
     pressTimer = null;
@@ -784,6 +789,23 @@
     }
     longFired = true;
   }
+  function resetSwipe() {
+    if (swipe && swipe.el) swipe.el.style.transform = '';
+    swipe = null;
+  }
+  function triggerReplySwipe(e) {
+    if (!swipe) return;
+    var dx = e.clientX - swipe.x;
+    var dy = e.clientY - swipe.y;
+    if (dx < 55 || dx <= Math.abs(dy)) return; // harus dominan geser ke kanan
+    if (selection.active || longFired) return;
+    var id = swipe.id;
+    resetSwipe();
+    cancelPress();
+    swipeFired = true;
+    if (navigator.vibrate) { try { navigator.vibrate(10); } catch (err) {} }
+    setReply(id);
+  }
   if (messagesEl) {
     registerPointer('pointerdown', function (e) {
       if (deleteModal && !deleteModal.hidden) return;
@@ -793,27 +815,41 @@
       if (!msg) return;
       if (e.target.closest('a,button')) return;
       longFired = false;
+      swipeFired = false;
       cancelPress();
       pressId = msg.dataset.id;
       pressStart = { x: e.clientX, y: e.clientY };
+      swipe = { el: msg, id: Number(msg.dataset.id), x: e.clientX, y: e.clientY };
       pressTimer = setTimeout(function () { fireLongPress(pressId); }, 550);
     });
     registerPointer('pointermove', function (e) {
-      if (!pressStart) return;
-      if (Math.abs(e.clientX - pressStart.x) > 12 || Math.abs(e.clientY - pressStart.y) > 12) {
+      if (pressStart && (Math.abs(e.clientX - pressStart.x) > 12 || Math.abs(e.clientY - pressStart.y) > 12)) {
         cancelPress();
       }
+      if (!swipe) return;
+      var dx = e.clientX - swipe.x;
+      var dy = e.clientY - swipe.y;
+      if (Math.abs(dy) > 12 && Math.abs(dy) > Math.abs(dx)) {
+        resetSwipe(); // dominan vertikal = scroll, batalkan kandidat
+        return;
+      }
+      if (dx > 8) swipe.el.style.transform = 'translateX(' + Math.min(dx, 48) + 'px)';
     });
-    registerPointer('pointerup', cancelPress);
-    registerPointer('pointercancel', cancelPress);
-    registerPointer('pointerleave', cancelPress);
+    registerPointer('pointerup', function (e) {
+      if (swipe) triggerReplySwipe(e);
+      resetSwipe();
+      cancelPress();
+    });
+    registerPointer('pointercancel', function () { resetSwipe(); cancelPress(); });
+    registerPointer('pointerleave', function () { resetSwipe(); cancelPress(); });
   }
 
-  // Klik yang muncul tepat setelah long press (saat jari dilepas) dibatalkan,
-  // agar media (mis. gambar) tidak ikut terbuka ketika pesan baru saja dipilih.
+  // Klik yang muncul tepat setelah geser / long press (saat jari dilepas)
+  // dibatalkan, agar media (mis. gambar) tidak ikut terbuka.
   document.addEventListener('click', function (e) {
-    if (longFired) {
+    if (longFired || swipeFired) {
       longFired = false;
+      swipeFired = false;
       e.preventDefault();
       e.stopPropagation();
     }

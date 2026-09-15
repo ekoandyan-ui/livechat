@@ -19,7 +19,9 @@
     * { margin: 0; padding: 0; box-sizing: border-box; }
     body { background: var(--bg); color: var(--text); font-family: 'Segoe UI', sans-serif; height: 100vh; height: 100dvh; overflow: hidden; }
     .chat-header { background: var(--surface); padding: 15px 25px; border-bottom: 1px solid var(--border); display: flex; align-items: center; justify-content: space-between; position: fixed; top: 0; left: 0; right: 0; z-index: 10; }
-    .chat-header .back-btn { color: var(--primary); text-decoration: none; font-weight: 600; margin-right: 15px; }
+    .chat-header .back-btn { color: var(--primary); text-decoration: none; display: inline-flex; align-items: center; justify-content: center; width: 34px; height: 34px; flex: 0 0 auto; margin-right: 10px; border-radius: 8px; }
+    .chat-header .back-btn svg { width: 24px; height: 24px; }
+    .chat-header .back-btn:hover { background: var(--primary-light); }
     .chat-header .patient-name { color: var(--text); font-size: 16px; font-weight: 600; text-decoration: none; border-bottom: 2px dashed var(--primary); }
     .chat-header .patient-name:hover { color: var(--primary); }
     .chat-messages { position: fixed; left: 0; right: 0; overflow-y: auto; -webkit-overflow-scrolling: touch; padding: 20px 25px; display: flex; flex-direction: column; }
@@ -52,7 +54,7 @@
 
     @media (max-width: 576px) {
       .chat-header { padding: 10px 12px; gap: 8px; }
-      .chat-header .back-btn { margin-right: 8px; font-size: 14px; }
+      .chat-header .back-btn { margin-right: 8px; }
       .chat-header .patient-name { font-size: 14px; }
       .msg { }
       .chat-input input { font-size: 16px; }
@@ -64,7 +66,7 @@
 <body>
   <div class="chat-header">
     <div style="display:flex; align-items:center;">
-      <a href="/admin" class="back-btn">&larr; Kembali</a>
+      <a href="/admin" class="back-btn" aria-label="Kembali" title="Kembali"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m12 19-7-7 7-7"></path><path d="M19 12H5"></path></svg></a>
       <a href="/admin/patient/<%= user ? user.id : roomId %>" class="patient-name"><%= user ? user.nama : 'Room ' + roomId %></a>
     </div>
   </div>
@@ -84,7 +86,7 @@
                 <div class="chat-file">
                   <% var fm = (msg.file_mime || '').toLowerCase(); %>
                   <% if (fm.indexOf('image/') === 0) { %>
-                    <img class="chat-file-img" src="/api/file/<%= msg.id %>" alt="<%= msg.file_name %>" onclick="window.open('/api/file/<%= msg.id %>','_blank')" />
+                    <img class="chat-file-img" draggable="false" src="/api/file/<%= msg.id %>" alt="<%= msg.file_name %>" onclick="window.open('/api/file/<%= msg.id %>','_blank')" />
                   <% } else if (fm.indexOf('video/') === 0) { %>
                     <video class="chat-file-video" controls preload="metadata" src="/api/file/<%= msg.id %>"></video>
                   <% } else { %>

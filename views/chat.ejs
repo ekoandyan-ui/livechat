@@ -90,7 +90,7 @@
                 <div class="chat-file">
                   <% var fm = (msg.file_mime || '').toLowerCase(); %>
                   <% if (fm.indexOf('image/') === 0) { %>
-                    <img class="chat-file-img" src="/api/file/<%= msg.id %>" alt="<%= msg.file_name %>" onclick="window.open('/api/file/<%= msg.id %>','_blank')" />
+                    <img class="chat-file-img" draggable="false" src="/api/file/<%= msg.id %>" alt="<%= msg.file_name %>" onclick="window.open('/api/file/<%= msg.id %>','_blank')" />
                   <% } else if (fm.indexOf('video/') === 0) { %>
                     <video class="chat-file-video" controls preload="metadata" src="/api/file/<%= msg.id %>"></video>
                   <% } else { %>
