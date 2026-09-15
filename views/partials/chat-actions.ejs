@@ -1,0 +1,890 @@
+<!-- =============================================
+     Fitur Chat Lanjutan:
+       - Menu titik tiga (Cari Pesan / Galeri / Dokumen)
+       - Mode seleksi pesan (long press / multi-select)
+       - Hapus pesan (untuk semua / untuk saya) + konfirmasi
+       - Balas pesan (reply) dengan quote & auto-scroll
+       - Salin teks pesan (copy)
+     Dipakai bersama oleh tampilan pasien (chat.ejs) & admin (admin-room.ejs).
+     Konfigurasi dibaca dari window.__chatCtx; pesan awal dari window.__renderMessages.
+     ============================================= -->
+<style>
+  /* Slot aksi di header (titik tiga, hapus, balas, copy, close) */
+  #chatActionSlot { flex: 0 0 auto; display: flex; align-items: center; gap: 2px; margin-left: auto; padding-left: 10px; }
+  .chat-header > div:first-child { min-width: 0; }
+  .chat-header h5 { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .ct-ic { flex: 0 0 auto; display: inline-flex; align-items: center; justify-content: center; width: 36px; height: 36px; border: none; background: transparent; border-radius: 50%; color: var(--subtle); cursor: pointer; -webkit-tap-highlight-color: transparent; transition: color .15s ease-in-out, background .15s ease-in-out; }
+  .ct-ic:hover { color: var(--primary); background: rgba(14,165,233,.10); }
+  .ct-ic svg { width: 21px; height: 21px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+  .ct-ic.ct-menu-btn svg { stroke: none; fill: currentColor; }
+  .ct-badge { flex: 0 0 auto; min-width: 20px; height: 20px; padding: 0 6px; border-radius: 10px; background: var(--primary); color: #fff; font-size: 11px; font-weight: 700; display: inline-flex; align-items: center; justify-content: center; }
+
+  /* Dropdown menu header (titik tiga) */
+  .ct-menu-wrap { position: relative; }
+  .ct-menu-panel { position: absolute; top: calc(100% + 6px); right: 0; min-width: 200px; background: var(--surface); border: 1px solid var(--border); border-radius: 12px; box-shadow: 0 10px 30px rgba(0,0,0,.15); z-index: 60; padding: 6px; }
+  .ct-menu-panel[hidden] { display: none; }
+  .ct-menu-item { display: flex; align-items: center; gap: 10px; width: 100%; padding: 10px 12px; border: none; background: none; border-radius: 8px; font-size: 14px; color: var(--text); cursor: pointer; text-align: left; }
+  .ct-menu-item:hover { background: var(--primary-light); color: var(--primary); }
+  .ct-menu-item svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; flex: 0 0 auto; }
+
+  /* Bar pencarian pesan */
+  .ct-searchbar { position: fixed; left: 0; right: 0; z-index: 9; display: flex; align-items: center; gap: 6px; padding: 8px 25px; background: var(--surface); border-bottom: 1px solid var(--border); box-shadow: 0 4px 12px rgba(0,0,0,.06); }
+  .ct-searchbar[hidden] { display: none; }
+  .ct-searchbar input { flex: 1; min-width: 0; background: var(--bg); border: 1px solid var(--border); color: var(--text); padding: 8px 12px; border-radius: 8px; font-size: 14px; }
+  .ct-searchbar input:focus { outline: none; border-color: var(--primary); }
+  .ct-search-count { flex: 0 0 auto; font-size: 12px; color: var(--subtle); min-width: 42px; text-align: center; }
+  .ct-nav-btn { flex: 0 0 auto; display: inline-flex; align-items: center; justify-content: center; width: 30px; height: 30px; border: none; border-radius: 8px; background: var(--bg); color: var(--subtle); cursor: pointer; }
+  .ct-nav-btn:hover { color: var(--primary); }
+  .ct-nav-btn svg { width: 16px; height: 16px; stroke: currentColor; stroke-width: 2; fill: none; stroke-linecap: round; stroke-linejoin: round; }
+  mark.ct-hl { background: #ffe066; color: #0f172a; border-radius: 2px; padding: 0 1px; }
+
+  /* Bar balas (reply) tepat di atas box ketik */
+  .ct-replybar { position: fixed; left: 0; right: 0; z-index: 8; padding: 0 25px 8px; pointer-events: none; }
+  .ct-replybar[hidden] { display: none; }
+  .ct-replybox { pointer-events: auto; display: flex; align-items: center; gap: 10px; background: var(--surface); border: 1px solid var(--border); border-radius: 12px; box-shadow: 0 -4px 16px rgba(0,0,0,.08); padding: 8px 10px; }
+  .ct-reply-info { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; border-left: 3px solid var(--primary); padding-left: 8px; }
+  .ct-reply-author { font-size: 12px; font-weight: 700; color: var(--primary); }
+  .ct-reply-text { font-size: 13px; color: var(--subtle); overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; word-break: break-word; }
+  .ct-reply-cancel { flex: 0 0 auto; width: 28px; height: 28px; display: inline-flex; align-items: center; justify-content: center; border: none; background: transparent; color: var(--subtle); cursor: pointer; border-radius: 50%; }
+  .ct-reply-cancel:hover { color: var(--primary); background: rgba(14,165,233,.1); }
+  .ct-reply-cancel svg { width: 18px; height: 18px; stroke: currentColor; stroke-width: 2; fill: none; stroke-linecap: round; stroke-linejoin: round; }
+
+  /* Quote pesan yang dibalas di dalam bubble */
+  .msg-quote { display: flex; flex-direction: column; gap: 1px; padding: 6px 10px; border-left: 3px solid var(--primary); background: rgba(14,165,233,.10); border-radius: 8px; margin: 0 0 6px; cursor: pointer; max-width: 100%; min-width: 0; }
+  .msg-mine .msg-quote { background: rgba(255,255,255,.16); }
+  .msg-quote-author { font-size: 12px; font-weight: 700; color: var(--primary); }
+  .msg-mine .msg-quote-author { color: #e0f2fe; }
+  .msg-quote-text { font-size: 13px; color: var(--subtle); overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; word-break: break-word; }
+  .msg-mine .msg-quote-text { color: #e6f2fe; }
+
+  /* Mode seleksi pesan */
+  #chatMessages .msg { -webkit-touch-callout: none; -webkit-user-select: none; user-select: none; }
+  /* Highlight seleksi: overlay biru transparan full-width DI ATAS bubble,
+     tinggi mengikuti tinggi bubble (sedikit lebih tinggi), per pesan terpilih. */
+  #chatMessages .msg.selected { position: relative; }
+  #chatMessages .msg.selected::before {
+    content: ''; position: absolute; left: 0; right: 0; top: -4px; bottom: 22px;
+    background: rgba(14,165,233,.32); z-index: 5; pointer-events: none; border-radius: 14px;
+  }
+  #chatMessages .msg.ct-jump .msg-bubble { animation: ctFlash 1.8s ease; }
+  @keyframes ctFlash { 0% { outline: 3px solid var(--primary); } 100% { outline: 3px solid transparent; } }
+
+  /* Overlay & modal */
+  .ct-overlay { position: fixed; inset: 0; background: rgba(15,23,42,.55); z-index: 200; display: flex; align-items: center; justify-content: center; padding: 20px; }
+  .ct-overlay[hidden] { display: none; }
+  .ct-modal { background: var(--surface); border-radius: 16px; padding: 18px; width: 100%; max-width: 340px; box-shadow: 0 20px 50px rgba(0,0,0,.25); }
+  .ct-modal h3 { font-size: 17px; margin: 0 0 4px; color: var(--text); }
+  .ct-modal .ct-modal-sub { font-size: 13px; color: var(--subtle); margin-bottom: 12px; }
+  .ct-modal .ct-mbtn { display: block; width: 100%; padding: 11px 14px; border-radius: 10px; border: 1px solid var(--border); background: var(--bg); color: var(--text); font-size: 14px; font-weight: 600; cursor: pointer; margin-top: 8px; text-align: left; }
+  .ct-modal .ct-mbtn:hover { background: var(--primary-light); color: var(--primary); }
+  .ct-modal .ct-mbtn.ct-danger { color: #dc2626; border-color: rgba(220,38,38,.3); }
+  .ct-modal .ct-mbtn.ct-danger:hover { background: rgba(220,38,38,.08); }
+  .ct-modal .ct-mbtn.ct-cancel { text-align: center; color: var(--subtle); font-weight: 600; }
+
+  /* Modal galeri / dokumen */
+  .ct-modal-wide { background: var(--surface); border-radius: 16px; padding: 16px; width: 100%; max-width: 560px; max-height: 78vh; display: flex; flex-direction: column; box-shadow: 0 20px 50px rgba(0,0,0,.25); }
+  .ct-modal-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 12px; }
+  .ct-modal-head h3 { font-size: 16px; margin: 0; }
+  .ct-modal-head button { border: none; background: transparent; color: var(--subtle); font-size: 20px; cursor: pointer; line-height: 1; padding: 2px 6px; border-radius: 6px; }
+  .ct-modal-head button:hover { color: var(--primary); }
+  .ct-files-body { flex: 1; min-height: 0; overflow-y: auto; }
+  .ct-files-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(110px, 1fr)); gap: 8px; padding: 2px; }
+  .ct-file-thumb { display: block; position: relative; border-radius: 10px; overflow: hidden; background: var(--bg); border: 1px solid var(--border); text-decoration: none; }
+  .ct-file-thumb img, .ct-file-thumb video { width: 100%; height: 110px; object-fit: cover; display: block; }
+  .ct-file-cap { position: absolute; left: 0; right: 0; bottom: 0; padding: 3px 6px; font-size: 11px; color: #fff; background: linear-gradient(transparent, rgba(0,0,0,.7)); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .ct-file-row { display: flex; align-items: center; gap: 10px; padding: 10px 8px; border-radius: 10px; text-decoration: none; color: var(--text); }
+  .ct-file-row:hover { background: var(--primary-light); }
+  .ct-file-row .doc-icon { font-size: 22px; flex: 0 0 auto; }
+  .ct-file-meta { min-width: 0; display: flex; flex-direction: column; }
+  .ct-file-name { font-size: 13px; font-weight: 600; word-break: break-word; }
+  .ct-file-size { font-size: 11px; color: var(--subtle); }
+  .ct-files-empty { text-align: center; color: var(--subtle); padding: 30px 0; font-size: 14px; }
+  .ct-close-ftr { margin-top: 12px; }
+  .ct-close-ftr button { width: 100%; padding: 10px; border-radius: 10px; border: 1px solid var(--border); background: var(--bg); color: var(--subtle); font-size: 14px; font-weight: 600; cursor: pointer; }
+
+  /* Toast notifikasi kecil */
+  #ctToast { position: fixed; left: 50%; transform: translateX(-50%); bottom: 140px; z-index: 300; background: #0f172a; color: #fff; padding: 9px 16px; border-radius: 20px; font-size: 13px; box-shadow: 0 10px 24px rgba(0,0,0,.25); opacity: 0; pointer-events: none; transition: opacity .2s ease, transform .2s ease; }
+  #ctToast.ct-show { opacity: 1; transform: translateX(-50%) translateY(-4px); }
+
+  @media (max-width: 576px) {
+    .ct-ic { width: 32px; height: 32px; }
+    .ct-searchbar { padding: 6px 12px; }
+    .ct-replybar { padding: 0 12px 8px; }
+  }
+</style>
+
+<div id="chatActionSlot" class="ct-actions"></div>
+
+<div class="ct-searchbar" id="ctSearchBar" hidden>
+  <input id="ctSearchInput" type="text" placeholder="Cari pesan&hellip;" autocomplete="off" />
+  <span class="ct-search-count" id="ctSearchCount"></span>
+  <button type="button" class="ct-nav-btn" id="ctSearchPrev" title="Sebelumnya" aria-label="Mencari sebelumnya">
+    <svg viewBox="0 0 24 24"><path d="m5 15 7-7 7 7"></path></svg>
+  </button>
+  <button type="button" class="ct-nav-btn" id="ctSearchNext" title="Berikutnya" aria-label="Mencari berikutnya">
+    <svg viewBox="0 0 24 24"><path d="m5 9 7 7 7-7"></path></svg>
+  </button>
+  <button type="button" class="ct-nav-btn" id="ctSearchClose" title="Tutup" aria-label="Tutup pencarian">
+    <svg viewBox="0 0 24 24"><path d="M18 6 6 18"></path><path d="M6 6l12 12"></path></svg>
+  </button>
+</div>
+
+<div class="ct-replybar" id="ctReplyBar" hidden>
+  <div class="ct-replybox">
+    <div class="ct-reply-info">
+      <span class="ct-reply-author" id="ctReplyAuthor"></span>
+      <span class="ct-reply-text" id="ctReplyText"></span>
+    </div>
+    <button type="button" class="ct-reply-cancel" id="ctReplyCancel" title="Batal balas" aria-label="Batal balas">
+      <svg viewBox="0 0 24 24"><path d="M18 6 6 18"></path><path d="M6 6l12 12"></path></svg>
+    </button>
+  </div>
+</div>
+
+<!-- Modal konfirmasi hapus pesan -->
+<div class="ct-overlay" id="ctDeleteModal" hidden>
+  <div class="ct-modal" role="dialog" aria-modal="true" aria-label="Hapus pesan">
+    <h3>Hapus pesan?</h3>
+    <div class="ct-modal-sub" id="ctDelSub"></div>
+    <button type="button" class="ct-mbtn ct-danger" id="ctDelAll">Hapus untuk Semua Orang</button>
+    <button type="button" class="ct-mbtn" id="ctDelMe">Hapus untuk Saya</button>
+    <button type="button" class="ct-mbtn ct-cancel" id="ctDelCancel">Batal</button>
+  </div>
+</div>
+
+<!-- Modal galeri / dokumen -->
+<div class="ct-overlay" id="ctFilesModal" hidden>
+  <div class="ct-modal-wide" role="dialog" aria-modal="true">
+    <div class="ct-modal-head">
+      <h3 id="ctFilesTitle">Galeri</h3>
+      <button type="button" id="ctFilesCloseX" aria-label="Tutup">&times;</button>
+    </div>
+    <div class="ct-files-body">
+      <div class="ct-files-grid" id="ctFilesBody"></div>
+    </div>
+    <div class="ct-close-ftr"><button type="button" id="ctFilesClose">Batal</button></div>
+  </div>
+</div>
+
+<div id="ctToast"></div>
+
+<script>
+(function () {
+  // ---------- Konteks tampilan ----------
+  var CTX = window.__chatCtx || {};
+  var myName = CTX.myName || '';
+  var roomId = CTX.roomId || '';
+
+  // ---------- Elemen ----------
+  var slotEl = document.getElementById('chatActionSlot');
+  var messagesEl = document.getElementById('chatMessages');
+  var headerEl = document.querySelector('.chat-header');
+  var searchBar = document.getElementById('ctSearchBar');
+  var searchInput = document.getElementById('ctSearchInput');
+  var searchCount = document.getElementById('ctSearchCount');
+  var replyBar = document.getElementById('ctReplyBar');
+  var replyAuthor = document.getElementById('ctReplyAuthor');
+  var replyText = document.getElementById('ctReplyText');
+  var deleteModal = document.getElementById('ctDeleteModal');
+  var delSub = document.getElementById('ctDelSub');
+  var delAllBtn = document.getElementById('ctDelAll');
+  var filesModal = document.getElementById('ctFilesModal');
+  var filesTitle = document.getElementById('ctFilesTitle');
+  var filesBody = document.getElementById('ctFilesBody');
+  var toastEl = document.getElementById('ctToast');
+
+  // Pindahkan slot aksi ke dalam header
+  if (headerEl && slotEl) headerEl.appendChild(slotEl);
+
+  // ---------- Registri pesan (ringan) ----------
+  var registry = new Map();
+  function register(data) {
+    if (!data || data.id == null) return;
+    registry.set(Number(data.id), data);
+  }
+  (Array.isArray(window.__renderMessages) ? window.__renderMessages : []).forEach(register);
+
+  // ---------- Utilitas ----------
+  function esc(s) {
+    return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {
+      return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
+    });
+  }
+  function truncate(s, n) {
+    s = String(s == null ? '' : s);
+    return s.length > n ? s.slice(0, n - 1) + '\u2026' : s;
+  }
+  function quoteText(d) {
+    if (d.message_type === 'file') {
+      var mime = String(d.file_mime || '').toLowerCase();
+      var icon = mime.indexOf('image/') === 0 ? '\uD83D\uDDBC\uFE0F ' : mime.indexOf('video/') === 0 ? '\uD83C\uDFAC ' : '\uD83D\uDCC4 ';
+      return icon + (d.file_name || 'File');
+    }
+    return d.message || '';
+  }
+  function fmtSize(b) {
+    b = parseInt(b, 10) || 0;
+    if (b >= 1048576) return (b / 1048576).toFixed(1) + ' MB';
+    if (b >= 1024) return (b / 1024).toFixed(1) + ' KB';
+    return b + ' B';
+  }
+  var toastTimer = null;
+  function toast(msg) {
+    toastEl.textContent = msg;
+    toastEl.classList.add('ct-show');
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(function () { toastEl.classList.remove('ct-show'); }, 2200);
+  }
+
+  var SVG = {
+    menu: '<svg viewBox="0 0 24 24"><circle cx="12" cy="5" r="1.7"></circle><circle cx="12" cy="12" r="1.7"></circle><circle cx="12" cy="19" r="1.7"></circle></svg>',
+    close: '<svg viewBox="0 0 24 24"><path d="M18 6 6 18"></path><path d="M6 6l12 12"></path></svg>',
+    trash: '<svg viewBox="0 0 24 24"><path d="M3 6h18"></path><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"></path><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path><path d="M10 11v6"></path><path d="M14 11v6"></path></svg>',
+    reply: '<svg viewBox="0 0 24 24"><path d="M9 14 4 9l5-5"></path><path d="M4 9h10.5a5.5 5.5 0 0 1 5.5 5.5v0a5.5 5.5 0 0 1-5.5 5.5H11"></path></svg>',
+    copy: '<svg viewBox="0 0 24 24"><rect x="9" y="9" width="13" height="13" rx="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>',
+    search: '<svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"></circle><path d="m21 21-4.3-4.3"></path></svg>',
+    gallery: '<svg viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2"></rect><circle cx="8.5" cy="8.5" r="1.5"></circle><path d="M21 15l-5-5L5 21"></path></svg>',
+    doc: '<svg viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><path d="M14 2v6h6"></path><path d="M16 13H8"></path><path d="M16 17H8"></path></svg>'
+  };
+
+  function iconButton(kind, cb, title) {
+    var b = document.createElement('button');
+    b.type = 'button';
+    b.className = 'ct-ic';
+    b.title = title || kind;
+    b.setAttribute('aria-label', title || kind);
+    b.innerHTML = SVG[kind] || '';
+    b.addEventListener('click', function (e) { e.stopPropagation(); closeMenu(); cb(); });
+    return b;
+  }
+
+  // ---------- Dropdown menu titik tiga ----------
+  var menuPanel = null;
+  function closeMenu() {
+    if (menuPanel) menuPanel.hidden = true;
+  }
+  function toggleMenu() {
+    if (menuPanel) menuPanel.hidden = !menuPanel.hidden;
+  }
+  function menuButton() {
+    var wrap = document.createElement('div');
+    wrap.className = 'ct-menu-wrap';
+    var btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'ct-ic ct-menu-btn';
+    btn.title = 'Menu';
+    btn.setAttribute('aria-label', 'Menu');
+    btn.innerHTML = SVG.menu;
+    btn.addEventListener('click', function (e) { e.stopPropagation(); toggleMenu(); });
+    wrap.appendChild(btn);
+
+    menuPanel = document.createElement('div');
+    menuPanel.className = 'ct-menu-panel';
+    menuPanel.hidden = true;
+    var items = [
+      { k: 'search', label: 'Cari Pesan', icon: SVG.search, act: function () { openSearch(); } },
+      { k: 'gallery', label: 'Galeri', icon: SVG.gallery, act: function () { openFiles('gallery'); } },
+      { k: 'doc', label: 'Dokumen', icon: SVG.doc, act: function () { openFiles('doc'); } }
+    ];
+    items.forEach(function (it) {
+      var b = document.createElement('button');
+      b.type = 'button';
+      b.className = 'ct-menu-item';
+      b.innerHTML = it.icon + '<span>' + it.label + '</span>';
+      b.addEventListener('click', function (e) {
+        e.stopPropagation();
+        closeMenu();
+        it.act();
+      });
+      menuPanel.appendChild(b);
+    });
+    wrap.appendChild(menuPanel);
+    return wrap;
+  }
+
+  // ---------- Mode seleksi ----------
+  var selection = { active: false, ids: new Set() };
+  var pendingDeleteIds = [];
+
+  function refreshSelectionUI() {
+    if (!messagesEl) return;
+    messagesEl.querySelectorAll('.msg').forEach(function (el) {
+      el.classList.toggle('selected', selection.ids.has(Number(el.dataset.id)));
+    });
+    renderHeader();
+    if (selection.active && selection.ids.size === 0) exitSelection();
+  }
+  function enterSelection(ids) {
+    selection.active = true;
+    selection.ids = new Set(ids.map(Number));
+    if (navigator.vibrate) { try { navigator.vibrate(15); } catch (e) {} }
+    refreshSelectionUI();
+  }
+  function exitSelection() {
+    selection.active = false;
+    selection.ids = new Set();
+    if (messagesEl) {
+      messagesEl.querySelectorAll('.msg.selected').forEach(function (el) { el.classList.remove('selected'); });
+    }
+    renderHeader();
+  }
+  function toggleSelection(id) {
+    var num = Number(id);
+    if (selection.ids.has(num)) selection.ids.delete(num);
+    else selection.ids.add(num);
+    refreshSelectionUI();
+  }
+
+  function renderHeader() {
+    if (!slotEl) return;
+    slotEl.innerHTML = '';
+    if (selection.active) {
+      slotEl.appendChild(iconButton('close', exitSelection, 'Tutup seleksi'));
+      var badge = document.createElement('span');
+      badge.className = 'ct-badge';
+      badge.textContent = selection.ids.size;
+      badge.setAttribute('aria-hidden', 'true');
+      slotEl.appendChild(badge);
+      slotEl.appendChild(iconButton('trash', openDeleteModal, 'Hapus'));
+      if (selection.ids.size === 1) {
+        slotEl.appendChild(iconButton('reply', onReply, 'Balas'));
+      }
+      slotEl.appendChild(iconButton('copy', onCopy, 'Salin'));
+    }
+    slotEl.appendChild(menuButton());
+  }
+
+  function onReply() {
+    var id = selection.ids.size === 1 ? selection.ids.values().next().value : null;
+    if (id == null) return;
+    exitSelection();
+    setReply(id);
+  }
+
+  // ---------- Balas pesan (reply) ----------
+  var replyToId = null;
+  function quoteOf(id) {
+    return registry.get(Number(id)) || null;
+  }
+  function setReply(id) {
+    var d = quoteOf(id);
+    replyToId = Number(id);
+    replyAuthor.textContent = d && d.sender_name ? d.sender_name : '';
+    replyText.textContent = d ? truncate(quoteText(d), 140) : 'Pesan ini telah dihapus';
+    replyBar.hidden = false;
+    positionReplyBar();
+  }
+  function clearReply() {
+    replyToId = null;
+    replyBar.hidden = true;
+    positionReplyBar();
+  }
+
+  // ---------- Copy ----------
+  function copyText(t) {
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      return navigator.clipboard.writeText(t).catch(function () {
+        return legacyCopy(t);
+      });
+    }
+    return Promise.resolve(legacyCopy(t));
+  }
+  function legacyCopy(t) {
+    try {
+      var ta = document.createElement('textarea');
+      ta.value = t;
+      ta.style.position = 'fixed';
+      ta.style.opacity = '0';
+      document.body.appendChild(ta);
+      ta.focus();
+      ta.select();
+      var ok = document.execCommand('copy');
+      ta.remove();
+      return ok;
+    } catch (e) { return false; }
+  }
+  function onCopy() {
+    var texts = [];
+    selection.ids.forEach(function (id) {
+      var d = registry.get(id);
+      if (!d) return;
+      texts.push(d.message_type === 'file' ? (d.file_name || '[File]') : (d.message || ''));
+    });
+    var joined = texts.filter(Boolean).join('\n');
+    if (!joined) { toast('Tidak ada teks untuk disalin'); return; }
+    copyText(joined).then(function (ok) {
+      toast(ok === false ? 'Gagal menyalin' : 'Pesan disalin');
+    });
+  }
+
+  // ---------- Hapus pesan ----------
+  function isRecent(createdAt) {
+    var t = new Date(createdAt).getTime();
+    return !isNaN(t) && (Date.now() - t) < 120000;
+  }
+  function openDeleteModal() {
+    pendingDeleteIds = [];
+    selection.ids.forEach(function (id) { pendingDeleteIds.push(id); });
+    if (!pendingDeleteIds.length) return;
+    var anyRecent = pendingDeleteIds.some(function (id) {
+      var d = registry.get(id);
+      return !!d && isRecent(d.created_at);
+    });
+    delAllBtn.style.display = anyRecent ? '' : 'none';
+    delAllBtn.title = anyRecent ? '' : 'Hanya pesan berusia kurang dari 2 menit yang bisa dihapus untuk semua orang';
+    if (pendingDeleteIds.length === 1) {
+      delSub.textContent = anyRecent
+        ? 'Pesan ini akan dihapus untuk semua orang di room ini.'
+        : 'Pesan ini sudah lebih dari 2 menit, hanya bisa dihapus untuk Anda.';
+    } else {
+      delSub.textContent = pendingDeleteIds.length + ' pesan dipilih. Pesan lebih dari 2 menit hanya bisa dihapus untuk Anda.';
+    }
+    deleteModal.hidden = false;
+  }
+  function closeDeleteModal() {
+    deleteModal.hidden = true;
+    pendingDeleteIds = [];
+  }
+  function doDelete(mode) {
+    var ids = pendingDeleteIds.slice();
+    closeDeleteModal();
+    if (!ids.length) return;
+    apiPost('/api/message/delete', {
+      roomId: roomId,
+      viewerName: myName,
+      messageIds: ids,
+      mode: mode
+    }).then(function (res) {
+      if (!res || !res.ok) {
+        toast((res && res.error) || 'Gagal menghapus pesan');
+        return;
+      }
+      if (res.deletedIds && res.deletedIds.length) removeMessages(res.deletedIds);
+      if (res.skipped && res.skipped.length) {
+        toast('Beberapa pesan sudah lebih dari 2 menit');
+      }
+    });
+  }
+
+  // ---------- Hapus dari tampilan ----------
+  function removeMessages(ids) {
+    ids.forEach(function (id) {
+      var num = Number(id);
+      if (messagesEl) {
+        var el = messagesEl.querySelector('.msg[data-id="' + num + '"]');
+        if (el) el.remove();
+      }
+      registry.delete(num);
+      selection.ids.delete(num);
+      if (replyToId && replyToId === num) clearReply();
+    });
+    if (selection.ids.size === 0 && selection.active) exitSelection();
+    else renderHeader();
+    if (messagesEl && !messagesEl.querySelector('.msg') && !messagesEl.querySelector('.no-msg')) {
+      var d = document.createElement('div');
+      d.className = 'no-msg';
+      d.textContent = 'Belum ada pesan di room ini';
+      messagesEl.appendChild(d);
+    }
+    closeSearch();
+  }
+
+  // ---------- Cari pesan ----------
+  var searchMatches = [];
+  var searchCur = -1;
+  function positionSearchBar() {
+    if (!searchBar || searchBar.hidden) return;
+    searchBar.style.top = ((headerEl ? headerEl.offsetHeight : 0) + 6) + 'px';
+  }
+  function openSearch() {
+    closeSearch();
+    searchBar.hidden = false;
+    positionSearchBar();
+    searchInput.value = '';
+    setTimeout(function () { searchInput.focus(); }, 50);
+  }
+  function closeSearch() {
+    if (searchBar) searchBar.hidden = true;
+    clearSearchMarks();
+    searchMatches = [];
+    searchCur = -1;
+    if (searchCount) searchCount.textContent = '';
+  }
+  function clearSearchMarks() {
+    if (!messagesEl) return;
+    var marks = messagesEl.querySelectorAll('mark.ct-hl');
+    Array.prototype.forEach.call(marks, function (m) {
+      var parent = m.parentNode;
+      parent.replaceChild(document.createTextNode(m.textContent), m);
+      parent.normalize();
+    });
+  }
+  function wrapMatches(node, q) {
+    var text = node.nodeValue;
+    var lower = text.toLowerCase();
+    var ql = q.toLowerCase();
+    var frag = document.createDocumentFragment();
+    var marks = [];
+    var i = 0, idx;
+    while ((idx = lower.indexOf(ql, i)) !== -1) {
+      if (idx > i) frag.appendChild(document.createTextNode(text.slice(i, idx)));
+      var mark = document.createElement('mark');
+      mark.className = 'ct-hl';
+      mark.textContent = text.slice(idx, idx + ql.length);
+      marks.push(mark);
+      frag.appendChild(mark);
+      i = idx + ql.length;
+      if (ql.length === 0) break;
+    }
+    if (i < text.length) frag.appendChild(document.createTextNode(text.slice(i)));
+    if (!marks.length) return marks;
+    node.parentNode.replaceChild(frag, node);
+    return marks;
+  }
+  function runSearch(q) {
+    clearSearchMarks();
+    var reEsc = q.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    var nodes = [];
+    if (messagesEl) {
+      var walker = document.createTreeWalker(messagesEl, NodeFilter.SHOW_TEXT, {
+        acceptNode: function (n) {
+          if (n.parentElement && n.parentElement.closest('.msg-quote, .chat-file, .msg-meta, .no-msg, mark')) {
+            return NodeFilter.FILTER_REJECT;
+          }
+          return NodeFilter.FILTER_ACCEPT;
+        }
+      });
+      var re = new RegExp(reEsc, 'ig');
+      var node;
+      while ((node = walker.nextNode())) {
+        if (re.test(node.nodeValue)) { nodes.push(node); re.lastIndex = 0; }
+      }
+    }
+    searchMatches = [];
+    nodes.forEach(function (n) {
+      var marks = wrapMatches(n, q);
+      searchMatches = searchMatches.concat(marks);
+    });
+    searchCur = searchMatches.length ? 0 : -1;
+    if (searchMatches.length && searchMatches[0].isConnected) {
+      searchMatches[0].scrollIntoView({ behavior: 'smooth', block: 'center', inline: 'center' });
+    }
+    updateSearchCount();
+  }
+  function updateSearchCount() {
+    if (!searchCount) return;
+    searchCount.textContent = searchMatches.length ? (searchCur + 1) + '/' + searchMatches.length : '0';
+  }
+  function goMatch(dir) {
+    if (!searchMatches.length) return;
+    searchCur = (searchCur + dir + searchMatches.length) % searchMatches.length;
+    updateSearchCount();
+    var m = searchMatches[searchCur];
+    if (m && m.isConnected) {
+      m.scrollIntoView({ behavior: 'smooth', block: 'center', inline: 'center' });
+      flashMsg(m.closest('.msg'));
+    }
+  }
+  function flashMsg(el) {
+    if (!el) return;
+    el.classList.add('ct-jump');
+    setTimeout(function () { el.classList.remove('ct-jump'); }, 1800);
+  }
+  function jumpTo(id) {
+    if (!messagesEl) return;
+    var target = messagesEl.querySelector('.msg[data-id="' + Number(id) + '"]');
+    if (target) {
+      target.scrollIntoView({ behavior: 'smooth', block: 'center', inline: 'center' });
+      flashMsg(target);
+    }
+  }
+
+  // ---------- Galeri & Dokumen ----------
+  function openFiles(kind) {
+    filesTitle.textContent = kind === 'gallery' ? 'Galeri' : 'Dokumen';
+    filesBody.innerHTML = '';
+    var items = [];
+    registry.forEach(function (d) {
+      if (!d || d.message_type !== 'file') return;
+      var mime = String(d.file_mime || '').toLowerCase();
+      var isImg = mime.indexOf('image/') === 0;
+      var isVid = mime.indexOf('video/') === 0;
+      if (kind === 'gallery' && (isImg || isVid)) items.push(d);
+      if (kind === 'doc' && !isImg && !isVid) items.push(d);
+    });
+    items.sort(function (a, b) { return Number(a.id) - Number(b.id); });
+    if (!items.length) {
+      var empty = document.createElement('div');
+      empty.className = 'ct-files-empty';
+      empty.textContent = 'Tidak ada file.';
+      filesBody.appendChild(empty);
+    } else if (kind === 'gallery') {
+      items.forEach(function (d) {
+        var url = '/api/file/' + d.id;
+        var mime = String(d.file_mime || '').toLowerCase();
+        var a = document.createElement('a');
+        a.className = 'ct-file-thumb';
+        a.href = url;
+        a.target = '_blank';
+        if (mime.indexOf('image/') === 0) {
+          var img = document.createElement('img');
+          img.src = url;
+          img.alt = d.file_name || 'Gambar';
+          img.loading = 'lazy';
+          a.appendChild(img);
+        } else {
+          var vid = document.createElement('video');
+          vid.src = url;
+          vid.muted = true;
+          vid.preload = 'metadata';
+          vid.playsInline = true;
+          a.appendChild(vid);
+          var cap = document.createElement('div');
+          cap.className = 'ct-file-cap';
+          cap.textContent = d.file_name || 'Video';
+          a.appendChild(cap);
+        }
+        filesBody.appendChild(a);
+      });
+    } else {
+      items.forEach(function (d) {
+        var a = document.createElement('a');
+        a.className = 'ct-file-row';
+        a.href = '/api/file/' + d.id;
+        a.target = '_blank';
+        var icon = document.createElement('span');
+        icon.className = 'doc-icon';
+        icon.textContent = '\uD83D\uDCC4';
+        var meta = document.createElement('span');
+        meta.className = 'ct-file-meta';
+        var nm = document.createElement('span');
+        nm.className = 'ct-file-name';
+        nm.textContent = d.file_name || 'Dokumen';
+        var sz = document.createElement('span');
+        sz.className = 'ct-file-size';
+        sz.textContent = fmtSize(d.file_size);
+        meta.appendChild(nm);
+        meta.appendChild(sz);
+        a.appendChild(icon);
+        a.appendChild(meta);
+        filesBody.appendChild(a);
+      });
+    }
+    filesModal.hidden = false;
+    positionReplyBar();
+  }
+  function closeFiles() {
+    filesModal.hidden = true;
+    filesBody.innerHTML = '';
+  }
+
+  // ---------- API helper ----------
+  function apiPost(url, body) {
+    return fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body)
+    }).then(function (r) { return r.json().catch(function () { return {}; }); })
+      .catch(function (e) { return { error: e.message }; });
+  }
+
+  // ---------- Layout: posisi bar balas ----------
+  function keyboardGap() {
+    var gap = 0;
+    if (window.visualViewport) {
+      var vv = window.visualViewport;
+      gap = Math.max(0, window.innerHeight - (vv.offsetTop + vv.height));
+    }
+    return gap;
+  }
+  function positionReplyBar() {
+    if (!replyBar || replyBar.hidden) return;
+    var inputEl = document.querySelector('.chat-input');
+    var h = inputEl ? inputEl.offsetHeight : 0;
+    replyBar.style.bottom = (h + keyboardGap() + 8) + 'px';
+  }
+  window.addEventListener('resize', positionReplyBar);
+  window.addEventListener('scroll', positionReplyBar, true);
+  window.addEventListener('ct-msg-resize', positionReplyBar);
+  if (window.visualViewport) {
+    window.visualViewport.addEventListener('resize', positionReplyBar);
+    window.visualViewport.addEventListener('scroll', positionReplyBar);
+  }
+
+  // ---------- Quote di dalam bubble (server-render: isi placeholder) ----------
+  function buildQuoteHTML(replyTo, d) {
+    var author = d && d.sender_name ? d.sender_name : '';
+    var text = d ? truncate(quoteText(d), 140) : 'Pesan ini telah dihapus';
+    return '<div class="msg-quote ct-qfilled" data-reply-to="' + replyTo + '" role="button" title="Lihat pesan asli">'
+      + '<div class="msg-quote-author">' + esc(author) + '</div>'
+      + '<div class="msg-quote-text">' + esc(text) + '</div></div>';
+  }
+  function fillQuotePlaceholders() {
+    if (!messagesEl) return;
+    var els = messagesEl.querySelectorAll('.msg-quote[data-reply-to]:not(.ct-qfilled)');
+    Array.prototype.forEach.call(els, function (el) {
+      var replyTo = Number(el.getAttribute('data-reply-to'));
+      var parentMsg = el.closest('.msg');
+      var entry = parentMsg ? registry.get(Number(parentMsg.dataset.id)) : null;
+      var snap = entry && entry.reply;
+      var d = registry.get(replyTo) || snap || null;
+      el.classList.add('ct-qfilled');
+      el.setAttribute('role', 'button');
+      el.setAttribute('title', 'Lihat pesan asli');
+      el.innerHTML = '<div class="msg-quote-author"></div><div class="msg-quote-text"></div>';
+      el.querySelector('.msg-quote-author').textContent = d && d.sender_name ? d.sender_name : '';
+      el.querySelector('.msg-quote-text').textContent = d ? truncate(quoteText(d), 140) : 'Pesan ini telah dihapus';
+    });
+  }
+  fillQuotePlaceholders();
+
+  // ---------- API publik untuk tampilan ----------
+  window.chatActions = {
+    register: register,
+    buildBubble: function (data) {
+      var d = data || {};
+      var quote = '';
+      if (d.reply_to != null) {
+        var target = registry.get(Number(d.reply_to)) || d.reply || null;
+        quote = buildQuoteHTML(d.reply_to, target);
+      }
+      var body = (typeof window.renderChatAttachmentBody === 'function')
+        ? window.renderChatAttachmentBody(d)
+        : esc(d.message || '');
+      return quote + '<div class="msg-content">' + body + '</div>';
+    },
+    removeMessages: removeMessages,
+    getReplyTo: function () { return replyToId; },
+    clearReply: clearReply,
+    exitSelection: exitSelection,
+    isSelected: function () { return selection.active; },
+    selectionCount: function () { return selection.ids.size; }
+  };
+
+  // ---------- Long press (mode seleksi) ----------
+  var pressTimer = null;
+  var pressId = null;
+  var pressStart = null;
+  var longFired = false;
+
+  function cancelPress() {
+    clearTimeout(pressTimer);
+    pressTimer = null;
+    pressId = null;
+    pressStart = null;
+  }
+  function fireLongPress(id) {
+    if (selection.active) {
+      if (!selection.ids.has(Number(id))) {
+        selection.ids.add(Number(id));
+        refreshSelectionUI();
+      }
+    } else {
+      enterSelection([id]);
+    }
+    longFired = true;
+  }
+  if (messagesEl) {
+    registerPointer('pointerdown', function (e) {
+      if (deleteModal && !deleteModal.hidden) return;
+      if (filesModal && !filesModal.hidden) return;
+      if (e.target.closest('.msg-quote')) return;
+      var msg = e.target.closest('.msg');
+      if (!msg) return;
+      if (e.target.closest('a,button')) return;
+      longFired = false;
+      cancelPress();
+      pressId = msg.dataset.id;
+      pressStart = { x: e.clientX, y: e.clientY };
+      pressTimer = setTimeout(function () { fireLongPress(pressId); }, 550);
+    });
+    registerPointer('pointermove', function (e) {
+      if (!pressStart) return;
+      if (Math.abs(e.clientX - pressStart.x) > 12 || Math.abs(e.clientY - pressStart.y) > 12) {
+        cancelPress();
+      }
+    });
+    registerPointer('pointerup', cancelPress);
+    registerPointer('pointercancel', cancelPress);
+    registerPointer('pointerleave', cancelPress);
+  }
+
+  // Klik yang muncul tepat setelah long press (saat jari dilepas) dibatalkan,
+  // agar media (mis. gambar) tidak ikut terbuka ketika pesan baru saja dipilih.
+  document.addEventListener('click', function (e) {
+    if (longFired) {
+      longFired = false;
+      e.preventDefault();
+      e.stopPropagation();
+    }
+  }, true);
+
+  // Dalam mode seleksi, klik pada media (gambar/video) dipakai untuk memilih /
+  // membatalkan pilihan, bukan membuka file. Fase capture mencegah onclick
+  // bawaan gambar (window.open) ikut berjalan.
+  if (messagesEl) {
+    messagesEl.addEventListener('click', function (e) {
+      if (!selection.active) return;
+      if (e.target.closest('.msg-quote')) return;
+      if (e.target.closest('a,button')) return;
+      if (!e.target.closest('img,video,audio')) return;
+      var msg = e.target.closest('.msg');
+      if (!msg || !messagesEl.contains(msg)) return;
+      e.preventDefault();
+      e.stopPropagation();
+      toggleSelection(msg.dataset.id);
+    }, true);
+  }
+  function registerPointer(type, fn) {
+    messagesEl.addEventListener(type, fn);
+  }
+
+  // Tangkap menu/context klik biasa pada pesan
+  if (messagesEl) {
+    messagesEl.addEventListener('contextmenu', function (e) {
+      if (e.target.closest('.msg')) e.preventDefault();
+    });
+  }
+
+  // Delegasi klik global: menu luar, quote scroll, pilih/batal pilih pesan
+  document.addEventListener('click', function (e) {
+    if (!e.target.closest('.ct-menu-wrap')) closeMenu();
+
+    var quote = e.target.closest('.msg-quote');
+    if (quote) {
+      jumpTo(quote.getAttribute('data-reply-to'));
+      return;
+    }
+    if (!selection.active) return;
+    var msg = e.target.closest('.msg');
+    if (!msg || !messagesEl || !messagesEl.contains(msg)) return;
+    if (e.target.closest('a,img,video,audio,button')) return;
+    toggleSelection(msg.dataset.id);
+  });
+
+  // ---------- Tombol besar UI ----------
+  document.getElementById('ctReplyCancel').addEventListener('click', clearReply);
+  document.getElementById('ctDelAll').addEventListener('click', function () { doDelete('all'); });
+  document.getElementById('ctDelMe').addEventListener('click', function () { doDelete('me'); });
+  document.getElementById('ctDelCancel').addEventListener('click', closeDeleteModal);
+  deleteModal.addEventListener('click', function (e) { if (e.target === deleteModal) closeDeleteModal(); });
+  document.getElementById('ctFilesClose').addEventListener('click', closeFiles);
+  document.getElementById('ctFilesCloseX').addEventListener('click', closeFiles);
+  filesModal.addEventListener('click', function (e) { if (e.target === filesModal) closeFiles(); });
+  document.getElementById('ctSearchClose').addEventListener('click', closeSearch);
+  document.getElementById('ctSearchPrev').addEventListener('click', function () { goMatch(-1); });
+  document.getElementById('ctSearchNext').addEventListener('click', function () { goMatch(1); });
+  searchInput.addEventListener('input', function () {
+    var q = searchInput.value.trim();
+    if (!q) { clearSearchMarks(); searchMatches = []; searchCur = -1; updateSearchCount(); return; }
+    runSearch(q);
+  });
+  searchInput.addEventListener('keydown', function (e) {
+    if (e.key === 'Enter') { e.preventDefault(); goMatch(1); }
+    if (e.key === 'Escape') closeSearch();
+  });
+
+  // ---------- Start ----------
+  renderHeader();
+})();
+</script>

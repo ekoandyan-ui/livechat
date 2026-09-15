@@ -63,3 +63,20 @@ ALTER TABLE messages ADD COLUMN IF NOT EXISTS file_name TEXT;
 ALTER TABLE messages ADD COLUMN IF NOT EXISTS file_mime TEXT;
 ALTER TABLE messages ADD COLUMN IF NOT EXISTS file_data TEXT;
 ALTER TABLE messages ADD COLUMN IF NOT EXISTS file_size BIGINT;
+
+-- 8. Kolom balas pesan (reply) pada tabel messages
+-- reply_to berisi id pesan asli yang dibalas (NULL jika bukan pesan balasan)
+ALTER TABLE messages ADD COLUMN IF NOT EXISTS reply_to BIGINT;
+CREATE INDEX IF NOT EXISTS idx_messages_reply_to ON messages(reply_to);
+
+-- 9. Tabel visibilitas pesan untuk fitur "Hapus untuk Saya"
+-- Mencatat pesan mana saja yang disembunyikan dari pengguna tertentu
+-- (pesan tetap ada di database & tetap terlihat oleh lawan bicara)
+CREATE TABLE IF NOT EXISTS message_visibility (
+  message_id BIGINT NOT NULL,
+  user_name TEXT NOT NULL,
+  room_id TEXT NOT NULL DEFAULT '',
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  PRIMARY KEY (message_id, user_name)
+);
+CREATE INDEX IF NOT EXISTS idx_visibility_message ON message_visibility(message_id);

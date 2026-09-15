@@ -51,6 +51,69 @@ db.connect((err, client, release) => {
 });
 
 // =============================================
+// BANTUAN: Pesan & visibilitas
+// =============================================
+const MSG_COLS =
+  "id, room_id, sender_name, message, message_type, file_name, file_mime, file_size, created_at, reply_to";
+const DELETE_ALL_WINDOW_SECS = 120; // 2 menit untuk "Hapus untuk Semua Orang"
+
+// Lampirkan snapshot pesan yang dibalas (untuk fitur balas / reply)
+async function attachReplyInfo(rows) {
+  if (!rows || rows.length === 0) return rows;
+  const replyIds = [
+    ...new Set(rows.map((r) => r.reply_to).filter((id) => id != null)),
+  ];
+  if (replyIds.length === 0) {
+    return rows.map((r) => {
+      r.reply = null;
+      return r;
+    });
+  }
+  const res = await db.query(
+    "SELECT id, sender_name, message, message_type, file_name, file_mime, file_size FROM messages WHERE id = ANY($1::int[])",
+    [replyIds],
+  );
+  const byId = new Map(res.rows.map((r) => [r.id, r]));
+  return rows.map((r) => {
+    if (r.reply_to != null) {
+      const t = byId.get(r.reply_to);
+      r.reply = t
+        ? {
+            id: t.id,
+            sender_name: t.sender_name,
+            text: t.message,
+            message_type: t.message_type,
+            file_name: t.file_name,
+            file_mime: t.file_mime,
+            file_size: t.file_size,
+          }
+        : null;
+    } else {
+      r.reply = null;
+    }
+    return r;
+  });
+}
+
+// Ambil pesan per room dengan filter "Hapus untuk Saya" untuk viewer tertentu
+async function fetchRoomMessages(roomId, viewerName, limit) {
+  let q = `SELECT ${MSG_COLS} FROM messages
+           WHERE room_id = $1
+             AND NOT EXISTS (
+               SELECT 1 FROM message_visibility mv
+               WHERE mv.message_id = messages.id AND mv.user_name = $2
+             )
+           ORDER BY created_at ASC`;
+  const params = [roomId, viewerName || ""];
+  if (limit && limit > 0) {
+    q += " LIMIT $3";
+    params.push(limit);
+  }
+  const result = await db.query(q, params);
+  return attachReplyInfo(result.rows);
+}
+
+// =============================================
 // DAFTAR RUMAH SAKIT
 // =============================================
 const RUMAH_SAKIT_LIST = [
@@ -151,10 +214,7 @@ app.get("/chat/:roomId", async (req, res) => {
     // Jika pasien sudah dihapus admin (total chat dihapus), otomatis kembali ke form awal
     if (!user) return res.redirect("/");
 
-    const msgResult = await db.query(
-      "SELECT id, room_id, sender_name, message, message_type, file_name, file_mime, file_size, created_at FROM messages WHERE room_id = $1 ORDER BY created_at ASC LIMIT 200",
-      [roomId],
-    );
+    const messages = await fetchRoomMessages(roomId, user.nama, 200);
 
     res.render("chat", {
       roomId,
@@ -162,7 +222,7 @@ app.get("/chat/:roomId", async (req, res) => {
       alamat: user.alamat,
       nomorWa: user.nomor_wa,
       rumahSakit,
-      messages: msgResult.rows,
+      messages,
     });
   } catch (err) {
     console.error("Error load chat:", err.message);
@@ -273,15 +333,12 @@ app.get("/admin/room/:patientId", requireAdmin, async (req, res) => {
 
     const roomId = `${user.rumah_sakit}_${user.id}`;
 
-    const messagesResult = await db.query(
-      "SELECT id, room_id, sender_name, message, message_type, file_name, file_mime, file_size, created_at FROM messages WHERE room_id = $1 ORDER BY created_at ASC",
-      [roomId],
-    );
+    const messages = await fetchRoomMessages(roomId, req.session.adminUser, 0);
 
     res.render("admin-room", {
       roomId,
       user,
-      messages: messagesResult.rows,
+      messages,
       adminUser: req.session.adminUser,
       adminRumahSakit: rumahSakit,
     });
@@ -374,20 +431,25 @@ app.post("/admin/patient/delete", requireAdmin, async (req, res) => {
 // =============================================
 app.get("/api/messages/:roomId", async (req, res) => {
   const roomId = req.params.roomId;
-  const after = req.query.after;
+  const viewer = req.query.viewer || "";
+  const after = req.query.after ? parseInt(req.query.after, 10) : null;
   try {
-    let query, params;
+    let query = `SELECT ${MSG_COLS} FROM messages
+                 WHERE room_id = $1
+                   AND NOT EXISTS (
+                     SELECT 1 FROM message_visibility mv
+                     WHERE mv.message_id = messages.id AND mv.user_name = $2
+                   )`;
+    const params = [roomId, viewer];
     if (after) {
-      query =
-        "SELECT id, room_id, sender_name, message, message_type, file_name, file_mime, file_size, created_at FROM messages WHERE room_id = $1 AND id > $2 ORDER BY created_at ASC";
-      params = [roomId, after];
-    } else {
-      query =
-        "SELECT id, room_id, sender_name, message, message_type, file_name, file_mime, file_size, created_at FROM messages WHERE room_id = $1 ORDER BY created_at ASC LIMIT 200";
-      params = [roomId];
+      query += " AND id > $3";
+      params.push(after);
     }
+    query += " ORDER BY created_at ASC";
+    if (!after) query += " LIMIT 200";
     const result = await db.query(query, params);
-    res.json({ messages: result.rows });
+    const enriched = await attachReplyInfo(result.rows);
+    res.json({ messages: enriched });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -446,8 +508,18 @@ app.post("/api/upload", async (req, res) => {
       return res.status(413).json({ error: "File terlalu besar." });
     }
 
+    let replyTo = null;
+    if (req.body.replyTo != null && Number.isInteger(Number(req.body.replyTo)) && Number(req.body.replyTo) > 0) {
+      replyTo = Number(req.body.replyTo);
+      const chk = await db.query(
+        "SELECT id FROM messages WHERE id = $1 AND room_id = $2",
+        [replyTo, roomId],
+      );
+      if (!chk.rows.length) replyTo = null;
+    }
+
     const result = await db.query(
-      "INSERT INTO messages (room_id, sender_name, message, message_type, file_name, file_mime, file_data, file_size) VALUES ($1, $2, $3, 'file', $4, $5, $6, $7) RETURNING *",
+      "INSERT INTO messages (room_id, sender_name, message, message_type, file_name, file_mime, file_data, file_size, reply_to) VALUES ($1, $2, $3, 'file', $4, $5, $6, $7, $8) RETURNING *",
       [
         roomId,
         senderName || "Anonim",
@@ -456,9 +528,10 @@ app.post("/api/upload", async (req, res) => {
         mime || "application/octet-stream",
         base64,
         parseInt(size, 10) || base64.length,
+        replyTo,
       ],
     );
-    const m = result.rows[0];
+    const [m] = await attachReplyInfo([result.rows[0]]);
 
     io.to(roomId).emit("room-message", {
       id: m.id,
@@ -470,11 +543,77 @@ app.post("/api/upload", async (req, res) => {
       file_mime: m.file_mime,
       file_size: m.file_size,
       created_at: m.created_at,
+      reply_to: m.reply_to,
+      reply: m.reply,
     });
 
     res.json({ ok: true, id: m.id });
   } catch (err) {
     console.error("Gagal simpan lampiran:", err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// =============================================
+// API: Hapus pesan (Hapus untuk Semua / Hapus untuk Saya)
+// Dipakai dari tampilan pasien & admin (via konfirmasi hapus)
+// =============================================
+app.post("/api/message/delete", async (req, res) => {
+  const { roomId, viewerName, messageIds, mode } = req.body || {};
+  const ids = (Array.isArray(messageIds) ? messageIds : [])
+    .map((v) => parseInt(v, 10))
+    .filter((v) => Number.isInteger(v) && v > 0);
+  if (!roomId || !viewerName || ids.length === 0) {
+    return res.status(400).json({ error: "Data tidak lengkap." });
+  }
+  if (mode !== "all" && mode !== "me") {
+    return res.status(400).json({ error: "Mode tidak valid." });
+  }
+  try {
+    if (mode === "all") {
+      // Hanya pesan berusia < 2 menit yang boleh dihapus untuk semua orang
+      const ageRes = await db.query(
+        `SELECT id, EXTRACT(EPOCH FROM (NOW() - created_at)) AS age
+         FROM messages WHERE id = ANY($1::int[]) AND room_id = $2`,
+        [ids, roomId],
+      );
+      const eligible = ageRes.rows
+        .filter((r) => Number(r.age) <= DELETE_ALL_WINDOW_SECS)
+        .map((r) => r.id);
+      if (eligible.length) {
+        await db.query("DELETE FROM messages WHERE id = ANY($1::int[])", [
+          eligible,
+        ]);
+      }
+      const skipped = ids.filter((id) => eligible.indexOf(id) === -1);
+      io.to(roomId).emit("messages-deleted", {
+        ids: eligible,
+        scope: "all",
+        by: viewerName,
+        room_id: roomId,
+      });
+      return res.json({ ok: true, deletedIds: eligible, skipped });
+    }
+
+    // mode 'me': sembunyikan hanya dari tampilan viewer ini
+    await db.query(
+      `INSERT INTO message_visibility (message_id, user_name, room_id)
+       SELECT m.id, v.user_name, m.room_id
+       FROM messages m
+       JOIN UNNEST($1::int[], $2::text[]) AS v(message_id, user_name) ON m.id = v.message_id
+       WHERE m.room_id = $3
+       ON CONFLICT (message_id, user_name) DO NOTHING`,
+      [ids, ids.map(() => viewerName), roomId],
+    );
+    io.to(roomId).emit("messages-deleted", {
+      ids,
+      scope: "me",
+      by: viewerName,
+      room_id: roomId,
+    });
+    return res.json({ ok: true, deletedIds: ids });
+  } catch (err) {
+    console.error("Error hapus pesan:", err.message);
     res.status(500).json({ error: err.message });
   }
 });
@@ -562,11 +701,21 @@ io.on("connection", (socket) => {
     if (!roomId || !message) return;
 
     try {
+      let replyTo = null;
+      if (data.replyTo != null && Number.isInteger(Number(data.replyTo)) && Number(data.replyTo) > 0) {
+        replyTo = Number(data.replyTo);
+        const chk = await db.query(
+          "SELECT id FROM messages WHERE id = $1 AND room_id = $2",
+          [replyTo, roomId],
+        );
+        if (!chk.rows.length) replyTo = null;
+      }
+
       const result = await db.query(
-        "INSERT INTO messages (room_id, sender_name, message) VALUES ($1, $2, $3) RETURNING *",
-        [roomId, senderName || "Anonim", message],
+        "INSERT INTO messages (room_id, sender_name, message, reply_to) VALUES ($1, $2, $3, $4) RETURNING id, room_id, sender_name, message, message_type, file_name, file_mime, file_size, created_at, reply_to",
+        [roomId, senderName || "Anonim", message, replyTo],
       );
-      const savedMsg = result.rows[0];
+      const [savedMsg] = await attachReplyInfo([result.rows[0]]);
 
       io.to(roomId).emit("room-message", {
         id: savedMsg.id,
@@ -574,6 +723,8 @@ io.on("connection", (socket) => {
         sender_name: savedMsg.sender_name,
         message: savedMsg.message,
         created_at: savedMsg.created_at,
+        reply_to: savedMsg.reply_to,
+        reply: savedMsg.reply,
       });
     } catch (err) {
       console.error("Gagal simpan pesan:", err.message);
