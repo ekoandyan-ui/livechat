@@ -146,7 +146,6 @@
 <div class="ct-overlay" id="ctDeleteModal" hidden>
   <div class="ct-modal" role="dialog" aria-modal="true" aria-label="Hapus pesan">
     <h3>Hapus pesan?</h3>
-    <div class="ct-modal-sub" id="ctDelSub"></div>
     <button type="button" class="ct-mbtn ct-danger" id="ctDelAll">Hapus untuk Semua Orang</button>
     <button type="button" class="ct-mbtn" id="ctDelMe">Hapus untuk Saya</button>
     <button type="button" class="ct-mbtn ct-cancel" id="ctDelCancel">Batal</button>
@@ -187,15 +186,17 @@
   var replyAuthor = document.getElementById('ctReplyAuthor');
   var replyText = document.getElementById('ctReplyText');
   var deleteModal = document.getElementById('ctDeleteModal');
-  var delSub = document.getElementById('ctDelSub');
-  var delAllBtn = document.getElementById('ctDelAll');
+    var delAllBtn = document.getElementById('ctDelAll');
   var filesModal = document.getElementById('ctFilesModal');
   var filesTitle = document.getElementById('ctFilesTitle');
   var filesBody = document.getElementById('ctFilesBody');
   var toastEl = document.getElementById('ctToast');
 
-  // Pindahkan slot aksi ke dalam header
-  if (headerEl && slotEl) headerEl.appendChild(slotEl);
+  // Pindahkan slot aksi ke dalam container pertama header (satu baris, sebaris dgn nama)
+  if (headerEl && slotEl) {
+    var headChild = headerEl.children && headerEl.children[0];
+    (headChild && headChild.tagName === 'DIV' ? headChild : headerEl).appendChild(slotEl);
+  }
 
   // ---------- Registri pesan (ringan) ----------
   var registry = new Map();
@@ -427,19 +428,17 @@
     pendingDeleteIds = [];
     selection.ids.forEach(function (id) { pendingDeleteIds.push(id); });
     if (!pendingDeleteIds.length) return;
+    var allOwn = pendingDeleteIds.every(function (id) {
+      var d = registry.get(Number(id));
+      return !!d && d.sender_name === myName;
+    });
     var anyRecent = pendingDeleteIds.some(function (id) {
       var d = registry.get(id);
       return !!d && isRecent(d.created_at);
     });
-    delAllBtn.style.display = anyRecent ? '' : 'none';
-    delAllBtn.title = anyRecent ? '' : 'Hanya pesan berusia kurang dari 2 menit yang bisa dihapus untuk semua orang';
-    if (pendingDeleteIds.length === 1) {
-      delSub.textContent = anyRecent
-        ? 'Pesan ini akan dihapus untuk semua orang di room ini.'
-        : 'Pesan ini sudah lebih dari 2 menit, hanya bisa dihapus untuk Anda.';
-    } else {
-      delSub.textContent = pendingDeleteIds.length + ' pesan dipilih. Pesan lebih dari 2 menit hanya bisa dihapus untuk Anda.';
-    }
+    var showAllBtn = allOwn && anyRecent;
+    delAllBtn.style.display = showAllBtn ? '' : 'none';
+    delAllBtn.title = showAllBtn ? '' : 'Hapus untuk Semua Orang hanya tersedia untuk pesan milik Anda sendiri.';
     deleteModal.hidden = false;
   }
   function closeDeleteModal() {

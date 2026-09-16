@@ -571,14 +571,18 @@ app.post("/api/message/delete", async (req, res) => {
   }
   try {
     if (mode === "all") {
-      // Hanya pesan berusia < 2 menit yang boleh dihapus untuk semua orang
+      // Hanya pesan sendiri yang berusia < 2 menit boleh dihapus untuk semua orang
       const ageRes = await db.query(
-        `SELECT id, EXTRACT(EPOCH FROM (NOW() - created_at)) AS age
+        `SELECT id, sender_name, EXTRACT(EPOCH FROM (NOW() - created_at)) AS age
          FROM messages WHERE id = ANY($1::int[]) AND room_id = $2`,
         [ids, roomId],
       );
       const eligible = ageRes.rows
-        .filter((r) => Number(r.age) <= DELETE_ALL_WINDOW_SECS)
+        .filter(
+          (r) =>
+            Number(r.age) <= DELETE_ALL_WINDOW_SECS &&
+            r.sender_name === viewerName,
+        )
         .map((r) => r.id);
       if (eligible.length) {
         await db.query("DELETE FROM messages WHERE id = ANY($1::int[])", [

@@ -18,7 +18,8 @@
     }
     * { margin: 0; padding: 0; box-sizing: border-box; }
     body { background: var(--bg); color: var(--text); font-family: 'Segoe UI', sans-serif; height: 100vh; height: 100dvh; overflow: hidden; }
-    .chat-header { background: var(--surface); padding: 15px 25px; border-bottom: 1px solid var(--border); display: flex; align-items: center; justify-content: space-between; position: fixed; top: 0; left: 0; right: 0; z-index: 10; }
+    .chat-header { background: var(--surface); padding: 15px 25px; border-bottom: 1px solid var(--border); display: flex; align-items: center; justify-content: space-between; position: fixed; top: 0; left: 0; right: 0; z-index: 10; flex-wrap: nowrap; }
+    .chat-header > div:first-child { flex: 1 1 auto; min-width: 0; display: flex; align-items: center; }
     .chat-header h5 { margin: 0; }
     .chat-header .room-label { color: var(--subtle); font-size: 13px; }
     .chat-header .hospital-tag { color: var(--primary); font-size: 12px; font-weight: 600; background: var(--primary-light); padding: 4px 10px; border-radius: 8px; margin-top: 4px; display: inline-block; }

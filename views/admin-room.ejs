@@ -18,11 +18,12 @@
     }
     * { margin: 0; padding: 0; box-sizing: border-box; }
     body { background: var(--bg); color: var(--text); font-family: 'Segoe UI', sans-serif; height: 100vh; height: 100dvh; overflow: hidden; }
-    .chat-header { background: var(--surface); padding: 15px 25px; border-bottom: 1px solid var(--border); display: flex; align-items: center; justify-content: space-between; position: fixed; top: 0; left: 0; right: 0; z-index: 10; }
+    .chat-header { background: var(--surface); padding: 15px 25px; border-bottom: 1px solid var(--border); display: flex; align-items: center; justify-content: space-between; position: fixed; top: 0; left: 0; right: 0; z-index: 10; flex-wrap: nowrap; }
     .chat-header .back-btn { color: var(--primary); text-decoration: none; display: inline-flex; align-items: center; justify-content: center; width: 34px; height: 34px; flex: 0 0 auto; margin-right: 10px; border-radius: 8px; }
     .chat-header .back-btn svg { width: 24px; height: 24px; }
     .chat-header .back-btn:hover { background: var(--primary-light); }
-    .chat-header .patient-name { color: var(--text); font-size: 16px; font-weight: 600; text-decoration: none; border-bottom: 2px dashed var(--primary); }
+    .chat-header > div:first-child { flex: 1 1 auto; min-width: 0; }
+    .chat-header .patient-name { color: var(--text); font-size: 16px; font-weight: 600; text-decoration: none; border-bottom: 2px dashed var(--primary); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .chat-header .patient-name:hover { color: var(--primary); }
     .chat-messages { position: fixed; left: 0; right: 0; overflow-y: auto; -webkit-overflow-scrolling: touch; padding: 20px 25px; display: flex; flex-direction: column; }
     .msg { margin-bottom: 15px; display: flex; flex-direction: column; width: 100%; }
@@ -44,7 +45,7 @@
     .no-msg { text-align: center; color: var(--subtle); padding: 60px 20px; font-size: 14px; }
 
     @media (max-width: 768px) {
-      .chat-header { padding: 12px 15px; flex-wrap: wrap; gap: 8px; }
+      .chat-header { padding: 12px 15px; gap: 8px; }
       .chat-messages { padding: 15px; }
       .msg { }
       .chat-input { padding: 12px 15px; }
