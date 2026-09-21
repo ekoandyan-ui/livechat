@@ -40,6 +40,9 @@
     .chat-input input:focus { outline: none; border-color: var(--primary); }
     .chat-input button { background: var(--primary); border: none; color: #fff; padding: 12px 25px; border-radius: 8px; font-weight: 600; cursor: pointer; }
     .chat-input button:hover { background: var(--primary-dark); }
+    #sendBtn { flex: 0 0 auto; display: inline-flex; align-items: center; justify-content: center; width: 46px; height: 46px; padding: 0; border-radius: 50%; font-weight: 400; }
+    #sendBtn svg { width: 24px; height: 24px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+    #sendBtn:active { transform: scale(0.96); }
     .admin-msg { border-left: 3px solid var(--primary); }
 
     @media (max-width: 768px) {
@@ -49,7 +52,7 @@
       .msg { }
       .chat-input { padding: 12px 15px; }
       .chat-input input { padding: 11px 12px; font-size: 13px; }
-      .chat-input button { padding: 11px 18px; }
+      #sendBtn { width: 42px; height: 42px; }
     }
 
     @media (max-width: 576px) {
@@ -64,7 +67,8 @@
       .msg .msg-meta { font-size: 10px; }
       .chat-input { padding: 10px 12px; gap: 8px; }
       .chat-input input { padding: 11px 12px; font-size: 16px; }
-      .chat-input button { padding: 11px 16px; font-size: 14px; }
+      #sendBtn { width: 42px; height: 42px; }
+      #sendBtn svg { width: 22px; height: 22px; }
       .no-msg { padding: 40px 15px; font-size: 13px; }
     }
   </style>
@@ -119,7 +123,7 @@
 
   <div class="chat-input">
     <%- include('partials/chat-tools', { senderName: userName, roomId: roomId, placeholder: 'Ketik pesan...' }) %>
-    <button id="sendBtn">Kirim</button>
+    <button type="button" id="sendBtn" title="Kirim" aria-label="Kirim"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3.714 3.048a.498.498 0 0 0-.683.627l2.843 7.627a2 2 0 0 1 0 1.396l-2.842 7.627a.498.498 0 0 0 .682.627l18-8.5a.5.5 0 0 0 0-.904z"/><path d="M6 12h16"/></svg></button>
   </div>
 
   <div id="chatData" hidden
