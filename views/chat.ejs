@@ -25,13 +25,13 @@
     .chat-header .hospital-tag { color: var(--primary); font-size: 12px; font-weight: 600; background: var(--primary-light); padding: 4px 10px; border-radius: 8px; margin-top: 4px; display: inline-block; }
     .online-badge { background: #27ae60; color: #fff; font-size: 12px; padding: 3px 10px; border-radius: 20px; }
     .chat-messages { position: fixed; left: 0; right: 0; overflow-y: auto; -webkit-overflow-scrolling: touch; padding: 20px 25px; display: flex; flex-direction: column; }
-    .msg { margin-bottom: 15px; display: flex; flex-direction: column; width: 100%; }
+    .msg { margin-bottom: 18px; display: flex; flex-direction: column; width: 100%; }
     .msg-mine { align-items: flex-end; }
     .msg-other { align-items: flex-start; }
-    .msg .msg-bubble { padding: 10px 15px; border-radius: 12px; font-size: 14px; line-height: 1.5; word-wrap: break-word; word-break: break-word; min-width: 30%; max-width: 90%; width: fit-content; }
-    .msg-mine .msg-bubble { background: var(--primary); color: #fff; border-bottom-right-radius: 4px; text-align: left; }
-    .msg-other .msg-bubble { background: var(--surface); color: var(--text); border: 1px solid var(--border); border-bottom-left-radius: 4px; text-align: left; }
-    .msg .msg-meta { font-size: 11px; color: var(--subtle); margin-top: 4px; }
+    .msg .msg-bubble { padding: 14px 18px; border-radius: 18px; font-size: 16px; line-height: 1.5; word-wrap: break-word; word-break: break-word; min-width: 30%; max-width: 92%; width: fit-content; }
+    .msg-mine .msg-bubble { background: #D3ECFB; color: #1e293b; border-bottom-right-radius: 4px; text-align: left; box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08); }
+    .msg-other .msg-bubble { background: var(--surface); color: var(--text); border: none; border-bottom-left-radius: 4px; text-align: left; box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08); }
+    .msg .msg-meta { font-size: 12px; color: var(--subtle); margin-top: 6px; }
     .msg-mine .msg-meta { text-align: right; }
     .msg-other .msg-meta { text-align: left; }
     .no-msg { text-align: center; color: var(--subtle); padding: 60px 20px; font-size: 14px; }
@@ -62,9 +62,9 @@
       .chat-header .hospital-tag { font-size: 11px; padding: 3px 8px; margin-top: 3px; }
       .online-badge { font-size: 11px; padding: 3px 8px; }
       .chat-messages { padding: 12px; }
-      .msg { margin-bottom: 12px; }
-      .msg .msg-bubble { padding: 9px 12px; font-size: 14px; }
-      .msg .msg-meta { font-size: 10px; }
+      .msg { margin-bottom: 16px; }
+      .msg .msg-bubble { padding: 12px 14px; font-size: 16px; }
+      .msg .msg-meta { font-size: 12px; margin-top: 6px; }
       .chat-input { padding: 10px 12px; gap: 8px; }
       .chat-input input { padding: 11px 12px; font-size: 16px; }
       #sendBtn { width: 42px; height: 42px; }
