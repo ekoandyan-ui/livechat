@@ -80,3 +80,7 @@ CREATE TABLE IF NOT EXISTS message_visibility (
   PRIMARY KEY (message_id, user_name)
 );
 CREATE INDEX IF NOT EXISTS idx_visibility_message ON message_visibility(message_id);
+
+-- 10. Kolom "sematkan" room di daftar pasien admin
+-- is_pinned: true = room muncul paling atas pada daftar room chat admin
+ALTER TABLE patients ADD COLUMN IF NOT EXISTS is_pinned BOOLEAN NOT NULL DEFAULT FALSE;

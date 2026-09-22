@@ -50,6 +50,13 @@ db.connect((err, client, release) => {
   console.log("Database Supabase terhubung!");
 });
 
+// Pastikan kolom is_pinned (fitur sematkan room) tersedia.
+db.query(
+  "ALTER TABLE patients ADD COLUMN IF NOT EXISTS is_pinned BOOLEAN NOT NULL DEFAULT FALSE;",
+)
+  .then(() => console.log("Kolom is_pinned siap."))
+  .catch((err) => console.error("Gagal menambah kolom is_pinned:", err.message));
+
 // =============================================
 // BANTUAN: Pesan & visibilitas
 // =============================================
@@ -111,6 +118,27 @@ async function fetchRoomMessages(roomId, viewerName, limit) {
   }
   const result = await db.query(q, params);
   return attachReplyInfo(result.rows);
+}
+
+// Hapus total chat room (pasien + semua pesan), scoped per rumah sakit.
+// Mengembalikan { ok: false, status, error } bila pasien tidak ditemukan
+// atau bukan milik rumah sakit tersebut.
+async function deletePatientFully(patientId, rumahSakit) {
+  const userResult = await db.query("SELECT * FROM patients WHERE id = $1", [
+    patientId,
+  ]);
+  const user = userResult.rows[0];
+  if (!user) return { ok: false, status: 404, error: "Pasien tidak ditemukan." };
+  if (user.rumah_sakit !== rumahSakit)
+    return { ok: false, status: 403, error: "Akses ditolak." };
+
+  const roomId = `${user.rumah_sakit}_${user.id}`;
+  await db.query("DELETE FROM messages WHERE room_id = $1", [roomId]);
+  await db.query("DELETE FROM patients WHERE id = $1", [patientId]);
+
+  // Beri tahu pasien di room tersebut agar otomatis kembali ke form awal
+  io.to(roomId).emit("chat-deleted");
+  return { ok: true };
 }
 
 // =============================================
@@ -271,7 +299,7 @@ app.get("/admin", requireAdmin, async (req, res) => {
     const rumahSakit = req.session.adminRumahSakit;
     // Only get users (patients) for this admin's hospital
     const usersResult = await db.query(
-      "SELECT * FROM patients WHERE rumah_sakit = $1 ORDER BY id ASC",
+      "SELECT * FROM patients WHERE rumah_sakit = $1 ORDER BY is_pinned DESC, id ASC",
       [rumahSakit],
     );
     const rooms = [];
@@ -293,6 +321,7 @@ app.get("/admin", requireAdmin, async (req, res) => {
         nomor_wa: user.nomor_wa,
         rumah_sakit: user.rumah_sakit,
         roomId: room_id,
+        isPinned: !!user.is_pinned,
         totalPesan: parseInt(msgCount.rows[0].total),
         lastMessage: lastMsg.rows.length > 0 ? lastMsg.rows[0] : null,
       });
@@ -402,27 +431,60 @@ app.post("/admin/patient/delete", requireAdmin, async (req, res) => {
   const { patientId } = req.body;
   const rumahSakit = req.session.adminRumahSakit;
   try {
-    const userResult = await db.query("SELECT * FROM patients WHERE id = $1", [
-      patientId,
-    ]);
-    const user = userResult.rows[0];
-    if (!user) return res.status(404).send("Pasien tidak ditemukan.");
-    if (user.rumah_sakit !== rumahSakit)
-      return res
-        .status(403)
-        .send("Akses ditolak: Room ini bukan milik rumah sakit Anda.");
-
-    const roomId = `${user.rumah_sakit}_${user.id}`;
-    await db.query("DELETE FROM messages WHERE room_id = $1", [roomId]);
-    await db.query("DELETE FROM patients WHERE id = $1", [patientId]);
-
-    // Beri tahu pasien di room tersebut agar otomatis kembali ke form awal
-    io.to(roomId).emit("chat-deleted");
-
+    await deletePatientFully(parseInt(patientId, 10), rumahSakit);
     res.redirect("/admin");
   } catch (err) {
     console.error("Error hapus total chat:", err.message);
     res.redirect("/admin");
+  }
+});
+
+// =============================================
+// API: Sematkan / lepas semat room (batch, hospital-scoped)
+// =============================================
+app.post("/api/room/pin", requireAdmin, async (req, res) => {
+  const rumahSakit = req.session.adminRumahSakit;
+  const { ids, pinned } = req.body || {};
+  const list = (Array.isArray(ids) ? ids : [])
+    .map((v) => parseInt(v, 10))
+    .filter((v) => Number.isInteger(v) && v > 0);
+  if (list.length === 0) {
+    return res.status(400).json({ error: "Data tidak lengkap." });
+  }
+  try {
+    const result = await db.query(
+      "UPDATE patients SET is_pinned = $1 WHERE id = ANY($2::int[]) AND rumah_sakit = $3",
+      [!!pinned, list, rumahSakit],
+    );
+    res.json({ ok: true, updated: result.rowCount || 0 });
+  } catch (err) {
+    console.error("Error sematkan room:", err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// =============================================
+// API: Hapus total chat room (batch, hospital-scoped)
+// =============================================
+app.post("/api/room/delete", requireAdmin, async (req, res) => {
+  const rumahSakit = req.session.adminRumahSakit;
+  const { ids } = req.body || {};
+  const list = (Array.isArray(ids) ? ids : [])
+    .map((v) => parseInt(v, 10))
+    .filter((v) => Number.isInteger(v) && v > 0);
+  if (list.length === 0) {
+    return res.status(400).json({ error: "Data tidak lengkap." });
+  }
+  const deletedIds = [];
+  try {
+    for (const id of list) {
+      const r = await deletePatientFully(id, rumahSakit);
+      if (r.ok) deletedIds.push(id);
+    }
+    res.json({ ok: true, deletedIds });
+  } catch (err) {
+    console.error("Error hapus total chat room:", err.message);
+    res.status(500).json({ error: err.message });
   }
 });
 
@@ -653,7 +715,7 @@ app.get("/api/rooms", requireAdmin, async (req, res) => {
   try {
     const rumahSakit = req.session.adminRumahSakit;
     const usersResult = await db.query(
-      "SELECT * FROM patients WHERE rumah_sakit = $1 ORDER BY id ASC",
+      "SELECT * FROM patients WHERE rumah_sakit = $1 ORDER BY is_pinned DESC, id ASC",
       [rumahSakit],
     );
     const rooms = [];
@@ -669,6 +731,7 @@ app.get("/api/rooms", requireAdmin, async (req, res) => {
         alamat: user.alamat,
         nomor_wa: user.nomor_wa,
         roomId: room_id,
+        isPinned: !!user.is_pinned,
         totalPesan: parseInt(msgCount.rows[0].total),
       });
     }
