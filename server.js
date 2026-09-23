@@ -38,10 +38,7 @@ app.use("/admin", (req, res, next) => {
 // =============================================
 const db = new Pool({
   connectionString: process.env.DATABASE_URL,
-  ssl:
-    process.env.DATABASE_SSL === "false"
-      ? false
-      : { rejectUnauthorized: false },
+  ssl: { rejectUnauthorized: false },
 });
 
 db.connect((err, client, release) => {
