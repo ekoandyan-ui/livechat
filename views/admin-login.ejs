@@ -17,18 +17,24 @@
       --border: rgba(0, 0, 0, 0.1);
     }
     body { background: var(--bg); min-height: 100vh; display: flex; align-items: center; justify-content: center; }
-    .login-card { background: var(--surface); border-radius: 12px; padding: 40px; width: 100%; max-width: 400px; box-shadow: 0 8px 32px rgba(0, 0, 0, 0.1); border: 1px solid var(--border); }
+    .login-card { background: var(--surface); border-radius: 12px; padding: 32px; width: 100%; max-width: 340px; box-shadow: 0 8px 32px rgba(0, 0, 0, 0.1); border: 1px solid var(--border); }
     .login-card h2 { color: var(--primary); text-align: center; margin-bottom: 5px; font-weight: 700; }
     .login-card .subtitle { color: var(--subtle); text-align: center; font-size: 13px; margin-bottom: 25px; }
     .form-control { background: var(--surface); border: 1px solid var(--border); color: var(--text); padding: 12px; }
     .form-control:focus { background: var(--surface); color: var(--text); border-color: var(--primary); box-shadow: none; }
+    .password-wrap { position: relative; }
+    .password-wrap .form-control { padding-right: 44px; }
+    .pw-toggle {
+      position: absolute; right: 4px; top: 50%; transform: translateY(-50%);
+      width: 32px; height: 32px; display: inline-flex; align-items: center; justify-content: center;
+      border: none; background: transparent; color: var(--subtle); cursor: pointer; border-radius: 8px;
+    }
+    .pw-toggle:hover { color: var(--primary); }
+    .pw-toggle svg { width: 19px; height: 19px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
     .form-label { color: var(--text); font-size: 14px; }
     .btn-login { background: var(--primary); border: none; padding: 12px; font-weight: 600; width: 100%; margin-top: 10px; }
     .btn-login:hover { background: var(--primary-dark); }
     .alert { font-size: 14px; }
-    .back-link { text-align: center; margin-top: 15px; }
-    .back-link a { color: var(--subtle); text-decoration: none; font-size: 13px; }
-    .back-link a:hover { color: var(--primary); }
   </style>
 </head>
 <body>
@@ -45,13 +51,29 @@
       </div>
       <div class="mb-3">
         <label class="form-label">Password</label>
-        <input type="password" name="password" class="form-control" placeholder="Masukkan password" required />
+        <div class="password-wrap">
+          <input type="password" name="password" class="form-control" id="passwordInput" placeholder="Masukkan password" required />
+          <button type="button" class="pw-toggle" id="pwToggle" aria-label="Lihat password" tabindex="-1">
+            <svg id="pwIconEye" viewBox="0 0 24 24"><path d="M2.062 12.348a1 1 0 0 1 0-.696 10.75 10.75 0 0 1 19.876 0 1 1 0 0 1 0 .696 10.75 10.75 0 0 1-19.876 0"></path><circle cx="12" cy="12" r="3"></circle></svg>
+            <svg id="pwIconEyeOff" viewBox="0 0 24 24" hidden><path d="M10.733 5.076a10.744 10.744 0 0 1 11.205 6.575 1 1 0 0 1 0 .696 10.747 10.747 0 0 1-1.444 2.49"></path><path d="M14.084 14.158a3 3 0 0 1-4.242-4.242"></path><path d="M17.479 17.499a10.75 10.75 0 0 1-15.417-5.151 1 1 0 0 1 0-.696 10.75 10.75 0 0 1 4.446-5.143"></path><path d="m2 2 20 20"></path></svg>
+          </button>
+        </div>
       </div>
       <button type="submit" class="btn btn-login">MASUK</button>
     </form>
-    <div class="back-link">
-      <a href="/">&larr; Kembali ke Halaman Utama</a>
-    </div>
   </div>
+  <script>
+    var pwInput = document.getElementById('passwordInput');
+    var pwToggle = document.getElementById('pwToggle');
+    var iconEye = document.getElementById('pwIconEye');
+    var iconEyeOff = document.getElementById('pwIconEyeOff');
+    pwToggle.addEventListener('click', function () {
+      var show = pwInput.type === 'password';
+      pwInput.type = show ? 'text' : 'password';
+      iconEye.hidden = show;
+      iconEyeOff.hidden = !show;
+      pwToggle.setAttribute('aria-label', show ? 'Sembunyikan password' : 'Lihat password');
+    });
+  </script>
 </body>
 </html>
