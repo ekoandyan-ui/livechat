@@ -18,27 +18,31 @@
     }
     * { margin: 0; padding: 0; box-sizing: border-box; }
     body { background: var(--bg); color: var(--text); font-family: 'Segoe UI', sans-serif; height: 100vh; height: 100dvh; overflow: hidden; }
-    .chat-header { background: var(--surface); padding: 15px 25px; border-bottom: 1px solid var(--border); display: flex; align-items: center; justify-content: space-between; position: fixed; top: 0; left: 0; right: 0; z-index: 10; }
+    .chat-header { background: var(--surface); padding: 15px 25px; border-bottom: 1px solid var(--border); display: flex; align-items: center; justify-content: space-between; position: fixed; top: 0; left: 0; right: 0; z-index: 10; flex-wrap: nowrap; }
+    .chat-header > div:first-child { flex: 1 1 auto; min-width: 0; display: flex; align-items: center; }
     .chat-header h5 { margin: 0; }
     .chat-header .room-label { color: var(--subtle); font-size: 13px; }
     .chat-header .hospital-tag { color: var(--primary); font-size: 12px; font-weight: 600; background: var(--primary-light); padding: 4px 10px; border-radius: 8px; margin-top: 4px; display: inline-block; }
     .online-badge { background: #27ae60; color: #fff; font-size: 12px; padding: 3px 10px; border-radius: 20px; }
     .chat-messages { position: fixed; left: 0; right: 0; overflow-y: auto; -webkit-overflow-scrolling: touch; padding: 20px 25px; display: flex; flex-direction: column; }
-    .msg { margin-bottom: 15px; display: flex; flex-direction: column; width: 100%; }
+    .msg { margin-bottom: 18px; display: flex; flex-direction: column; width: 100%; }
     .msg-mine { align-items: flex-end; }
     .msg-other { align-items: flex-start; }
-    .msg .msg-bubble { padding: 10px 15px; border-radius: 12px; font-size: 14px; line-height: 1.5; word-wrap: break-word; word-break: break-word; min-width: 30%; max-width: 90%; width: fit-content; }
-    .msg-mine .msg-bubble { background: var(--primary); color: #fff; border-bottom-right-radius: 4px; text-align: left; }
-    .msg-other .msg-bubble { background: var(--surface); color: var(--text); border: 1px solid var(--border); border-bottom-left-radius: 4px; text-align: left; }
-    .msg .msg-meta { font-size: 11px; color: var(--subtle); margin-top: 4px; }
+    .msg .msg-bubble { padding: 14px 18px; border-radius: 18px; font-size: 16px; line-height: 1.5; word-wrap: break-word; word-break: break-word; min-width: 30%; max-width: 92%; width: fit-content; }
+    .msg-mine .msg-bubble { background: #D3ECFB; color: #1e293b; border-bottom-right-radius: 4px; text-align: left; box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08); }
+    .msg-other .msg-bubble { background: var(--surface); color: var(--text); border: none; border-bottom-left-radius: 4px; text-align: left; box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08); }
+    .msg .msg-meta { font-size: 12px; color: var(--subtle); margin-top: 6px; }
     .msg-mine .msg-meta { text-align: right; }
     .msg-other .msg-meta { text-align: left; }
     .no-msg { text-align: center; color: var(--subtle); padding: 60px 20px; font-size: 14px; }
-    .chat-input { background: var(--surface); padding: 15px 25px; border-top: 1px solid var(--border); display: flex; gap: 10px; position: fixed; bottom: 0; left: 0; right: 0; z-index: 10; }
+    .chat-input { background: var(--surface); padding: 15px 25px; border-top: 1px solid var(--border); display: flex; align-items: flex-end; gap: 10px; position: fixed; bottom: 0; left: 0; right: 0; z-index: 10; }
     .chat-input input { flex: 1; background: var(--bg); border: 1px solid var(--border); color: var(--text); padding: 12px 15px; border-radius: 8px; font-size: 14px; }
     .chat-input input:focus { outline: none; border-color: var(--primary); }
     .chat-input button { background: var(--primary); border: none; color: #fff; padding: 12px 25px; border-radius: 8px; font-weight: 600; cursor: pointer; }
     .chat-input button:hover { background: var(--primary-dark); }
+    #sendBtn { flex: 0 0 auto; display: inline-flex; align-items: center; justify-content: center; width: 46px; height: 46px; padding: 0; border-radius: 50%; font-weight: 400; }
+    #sendBtn svg { width: 24px; height: 24px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+    #sendBtn:active { transform: scale(0.96); }
     .admin-msg { border-left: 3px solid var(--primary); }
 
     @media (max-width: 768px) {
@@ -48,7 +52,7 @@
       .msg { }
       .chat-input { padding: 12px 15px; }
       .chat-input input { padding: 11px 12px; font-size: 13px; }
-      .chat-input button { padding: 11px 18px; }
+      #sendBtn { width: 42px; height: 42px; }
     }
 
     @media (max-width: 576px) {
@@ -58,12 +62,13 @@
       .chat-header .hospital-tag { font-size: 11px; padding: 3px 8px; margin-top: 3px; }
       .online-badge { font-size: 11px; padding: 3px 8px; }
       .chat-messages { padding: 12px; }
-      .msg { margin-bottom: 12px; }
-      .msg .msg-bubble { padding: 9px 12px; font-size: 14px; }
-      .msg .msg-meta { font-size: 10px; }
+      .msg { margin-bottom: 16px; }
+      .msg .msg-bubble { padding: 12px 14px; font-size: 16px; }
+      .msg .msg-meta { font-size: 12px; margin-top: 6px; }
       .chat-input { padding: 10px 12px; gap: 8px; }
       .chat-input input { padding: 11px 12px; font-size: 16px; }
-      .chat-input button { padding: 11px 16px; font-size: 14px; }
+      #sendBtn { width: 42px; height: 42px; }
+      #sendBtn svg { width: 22px; height: 22px; }
       .no-msg { padding: 40px 15px; font-size: 13px; }
     }
   </style>
@@ -82,26 +87,31 @@
       <% messages.forEach(msg => { %>
         <div class="msg <%= msg.sender_name === userName ? 'msg-mine' : 'msg-other' %>" data-id="<%= msg.id %>">
           <div class="msg-bubble">
-            <% if (msg.message_type === 'file') { %>
-              <div class="chat-file">
-                <% var fm = (msg.file_mime || '').toLowerCase(); %>
-                <% if (fm.indexOf('image/') === 0) { %>
-                  <img class="chat-file-img" src="/api/file/<%= msg.id %>" alt="<%= msg.file_name %>" onclick="window.open('/api/file/<%= msg.id %>','_blank')" />
-                <% } else if (fm.indexOf('video/') === 0) { %>
-                  <video class="chat-file-video" controls preload="metadata" src="/api/file/<%= msg.id %>"></video>
-                <% } else { %>
-                  <a class="chat-file-doc" href="/api/file/<%= msg.id %>" target="_blank">
-                    <span class="doc-icon">📄</span>
-                    <span class="doc-meta">
-                      <span class="doc-name"><%= msg.file_name || 'Dokumen' %></span>
-                      <span class="doc-size"><%= msg.file_size ? (msg.file_size / 1024).toFixed(1) : '0' %> KB</span>
-                    </span>
-                  </a>
-                <% } %>
-              </div>
-            <% } else { %>
-              <%= msg.message %>
+            <% if (msg.reply_to) { %>
+              <div class="msg-quote" data-reply-to="<%= msg.reply_to %>"></div>
             <% } %>
+            <div class="msg-content">
+              <% if (msg.message_type === 'file') { %>
+                <div class="chat-file">
+                  <% var fm = (msg.file_mime || '').toLowerCase(); %>
+                  <% if (fm.indexOf('image/') === 0) { %>
+                    <img class="chat-file-img" draggable="false" src="/api/file/<%= msg.id %>" alt="<%= msg.file_name %>" onclick="window.open('/api/file/<%= msg.id %>','_blank')" />
+                  <% } else if (fm.indexOf('video/') === 0) { %>
+                    <video class="chat-file-video" controls preload="metadata" src="/api/file/<%= msg.id %>"></video>
+                  <% } else { %>
+                    <a class="chat-file-doc" href="/api/file/<%= msg.id %>" target="_blank">
+                      <span class="doc-icon">📄</span>
+                      <span class="doc-meta">
+                        <span class="doc-name"><%= msg.file_name || 'Dokumen' %></span>
+                        <span class="doc-size"><%= msg.file_size ? (msg.file_size / 1024).toFixed(1) : '0' %> KB</span>
+                      </span>
+                    </a>
+                  <% } %>
+                </div>
+              <% } else { %>
+                <%= msg.message %>
+              <% } %>
+            </div>
           </div>
           <div class="msg-meta">
             <%= new Date(msg.created_at).toLocaleString('id-ID', { day:'2-digit', month:'2-digit', year:'numeric', hour:'2-digit', minute:'2-digit' }) %>
@@ -113,17 +123,28 @@
 
   <div class="chat-input">
     <%- include('partials/chat-tools', { senderName: userName, roomId: roomId, placeholder: 'Ketik pesan...' }) %>
-    <button id="sendBtn">Kirim</button>
+    <button type="button" id="sendBtn" title="Kirim" aria-label="Kirim"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3.714 3.048a.498.498 0 0 0-.683.627l2.843 7.627a2 2 0 0 1 0 1.396l-2.842 7.627a.498.498 0 0 0 .682.627l18-8.5a.5.5 0 0 0 0-.904z"/><path d="M6 12h16"/></svg></button>
   </div>
+
+  <div id="chatData" hidden
+       data-ctx="<%= JSON.stringify({ roomId: roomId, myName: userName, isAdmin: false, alamat: alamat, nomorWa: nomorWa, rumahSakit: rumahSakit }) %>"
+       data-render="<%= JSON.stringify(messages) %>"></div>
+  <script>
+    var chatData = document.getElementById('chatData');
+    window.__chatCtx = JSON.parse(chatData.getAttribute('data-ctx') || '{}');
+    window.__renderMessages = JSON.parse(chatData.getAttribute('data-render') || '[]');
+  </script>
+  <%- include('partials/chat-actions') %>
 
   <script src="/socket.io/socket.io.js"></script>
   <script>
     const socket = io();
-    const roomId = '<%= roomId %>';
-    const myName = '<%= userName %>';
-    const myAlamat = '<%= alamat %>';
-    const myNomorWa = '<%= nomorWa %>';
-    const myRumahSakit = '<%= rumahSakit %>';
+    const ctx = window.__chatCtx || {};
+    const roomId = ctx.roomId;
+    const myName = ctx.myName;
+    const myAlamat = ctx.alamat;
+    const myNomorWa = ctx.nomorWa;
+    const myRumahSakit = ctx.rumahSakit;
     const chatMessages = document.getElementById('chatMessages');
     const msgInput = document.getElementById('msgInput');
     const sendBtn = document.getElementById('sendBtn');
@@ -146,6 +167,7 @@
       window.visualViewport.addEventListener('scroll', () => { updateChatLayout(); scrollToBottom(); });
     }
     window.addEventListener('resize', () => { updateChatLayout(); scrollToBottom(); });
+    window.addEventListener('ct-msg-resize', updateChatLayout);
     updateChatLayout();
 
     const SESSION_KEY = 'dinkes_chat_session';
@@ -203,25 +225,39 @@
       div.dataset.id = data.id;
       div.innerHTML = `
         <div class="msg-bubble">
-          ${window.renderChatAttachmentBody(data)}
+          ${window.chatActions.buildBubble(data)}
         </div>
         <div class="msg-meta">
           ${formatTime(data.created_at)}
         </div>
       `;
       chatMessages.appendChild(div);
+      window.chatActions.register(data);
       scrollToBottom();
     }
 
     sendBtn.addEventListener('click', () => {
       const msg = msgInput.value.trim();
       if (!msg) return;
-      socket.emit('message', { roomId, senderName: myName, message: msg });
-      msgInput.value = '';
+      const replyTo = (window.chatActions && window.chatActions.getReplyTo()) || null;
+      socket.emit('message', { roomId, senderName: myName, message: msg, replyTo });
+      if (window.ctResetMsgBox) window.ctResetMsgBox();
+      else msgInput.value = '';
+      if (window.chatActions) window.chatActions.clearReply();
     });
 
-    msgInput.addEventListener('keypress', (e) => {
-      if (e.key === 'Enter') sendBtn.click();
+    msgInput.addEventListener('keydown', (e) => {
+      // Enter = kirim; Shift+Enter = baris baru
+      if (e.key === 'Enter' && !e.shiftKey) {
+        e.preventDefault();
+        sendBtn.click();
+      }
+    });
+
+    socket.on('messages-deleted', (payload) => {
+      if (!payload || payload.room_id !== roomId) return;
+      if (payload.scope === 'me' && payload.by !== myName) return;
+      if (payload.ids && payload.ids.length) window.chatActions.removeMessages(payload.ids);
     });
 
     socket.on('room-message', (data) => {

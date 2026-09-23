@@ -6,11 +6,18 @@
      Fitur Emoji & Lampiran (dipakai di chat pasien & admin)
      ============================================= -->
 <style>
-  /* Kotak ketik: input + ikon menyatu dalam satu box */
+  /* Kotak ketik: input + ikon menyatu dalam satu box.
+     Composer tumbuh ke ATAS (elemen di bawah tetap pada posisinya):
+     parent .chat-input adalah position:fixed; bottom:0, jadi tinggi composer
+     yang bertambah mendorong tepi atasnya naik, bukan menutupi tombol kirim. */
   .ct-composer { flex: 1; display: flex; align-items: center; gap: 2px; min-width: 0; background: var(--bg); border: 1px solid var(--border); border-radius: 22px; padding: 4px 6px 4px 14px; transition: border-color .15s ease-in-out, box-shadow .15s ease-in-out; }
+  /* Ikon emoji & lampiran dalam satu baris, sejajar tengah secara vertikal */
+  .ct-tools-bar { flex: 0 0 auto; display: flex; align-items: center; gap: 2px; }
   .ct-composer:focus-within { border-color: var(--primary); box-shadow: 0 0 0 0.15rem rgba(14,165,233,.18); }
-  .ct-composer input { flex: 1; min-width: 0; background: transparent; border: none; padding: 9px 0; font-size: 14px; color: var(--text); }
-  .ct-composer input:focus { outline: none; border: none; box-shadow: none; }
+  /* Textarea auto-grow: wrap otomatis, batas maks 10 baris (cap 228px @14px/desktop),
+     setelah itu scroll vertikal di dalam box sendiri (bukan horizontal / terpotong). */
+  .ct-composer textarea.ct-msg-input { flex: 1; min-width: 0; background: transparent; border: none; padding: 9px 0; font-size: 14px; line-height: 1.5; color: var(--text); resize: none; overflow-y: auto; overflow-x: hidden; white-space: pre-wrap; overflow-wrap: anywhere; word-wrap: break-word; word-break: break-word; max-height: 228px; }
+  .ct-composer textarea.ct-msg-input:focus { outline: none; border: none; box-shadow: none; }
 
   /* Ikon garis minimalis tanpa background */
   button.ct-tool { flex: 0 0 auto; display: inline-flex; align-items: center; justify-content: center; width: 32px; height: 32px; background: transparent !important; border: none !important; padding: 0 !important; margin: 0; color: var(--subtle); cursor: pointer; border-radius: 50% !important; box-shadow: none !important; -webkit-tap-highlight-color: transparent; transition: color .15s ease-in-out, background .15s ease-in-out; }
@@ -18,7 +25,7 @@
   button.ct-tool:focus, button.ct-tool:focus-visible { outline: none !important; box-shadow: none !important; background: transparent !important; }
   button.ct-tool svg { width: 24px; height: 24px; fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; }
 
-  .ct-panel { position: absolute; bottom: calc(100% + 8px); right: 0; background: var(--surface); border: 1px solid var(--border); border-radius: 12px; box-shadow: 0 10px 30px rgba(0,0,0,.15); z-index: 50; }
+  .ct-panel { position: absolute; bottom: calc(100% + 8px); right: 25px; background: var(--surface); border: 1px solid var(--border); border-radius: 12px; box-shadow: 0 10px 30px rgba(0,0,0,.15); z-index: 50; }
   .ct-panel[hidden] { display: none; }
   .ct-attach-list { padding: 6px; display: flex; flex-direction: column; min-width: 185px; }
   .ct-attach-list button { display: flex; align-items: center; gap: 10px; background: none; border: none; padding: 10px 12px; border-radius: 8px; font-size: 14px; color: var(--text); cursor: pointer; text-align: left; width: 100%; }
@@ -51,7 +58,7 @@
   .chat-file-img { display: block; max-width: 100%; max-height: 260px; border-radius: 8px; cursor: pointer; margin: 2px 0; }
   .chat-file-video { display: block; max-width: 100%; max-height: 260px; border-radius: 8px; margin: 2px 0; }
   .chat-file-doc { display: flex; align-items: center; gap: 10px; padding: 8px 10px; background: rgba(0,0,0,.05); border-radius: 8px; text-decoration: none; color: var(--text); min-width: 180px; max-width: 260px; margin: 2px 0; }
-  .msg-mine .chat-file-doc, .msg-admin .chat-file-doc { background: rgba(255,255,255,.2); color: #fff; }
+  .msg-mine .chat-file-doc, .msg-admin .chat-file-doc { background: rgba(0,0,0,.06); color: inherit; }
   .chat-file-doc .doc-icon { font-size: 26px; flex: 0 0 auto; }
   .chat-file-doc .doc-meta { min-width: 0; display: flex; flex-direction: column; }
   .chat-file-doc .doc-name { font-size: 13px; font-weight: 600; word-break: break-word; }
@@ -59,28 +66,32 @@
 
   @media (max-width: 768px) {
     .ct-composer { border-radius: 20px; }
+    .ct-panel { right: 15px; }
   }
   @media (max-width: 576px) {
     .ct-composer { padding: 3px 4px 3px 10px; }
-    .ct-composer input { font-size: 16px; padding: 8px 0; }
+    .ct-composer textarea.ct-msg-input { font-size: 16px; padding: 8px 0; }
     button.ct-tool { width: 30px; height: 30px; }
     button.ct-tool svg { width: 22px; height: 22px; }
     .ct-emoji-grid { grid-template-columns: repeat(7, 1fr); max-width: 280px; max-height: 180px; }
+    .ct-panel { right: 12px; }
   }
 </style>
 
 <div class="ct-composer ct-tools" data-sender="<%= senderName %>" data-room="<%= roomId %>">
-  <input type="text" id="msgInput" placeholder="<%= placeholder %>" autocomplete="off" />
+  <textarea id="msgInput" class="ct-msg-input" rows="1" placeholder="<%= placeholder %>" autocomplete="off"></textarea>
 
-  <!-- Tombol emoji: di HP membuka keyboard emoji bawaan, di desktop membuka panel -->
-  <button type="button" class="ct-tool" id="ctEmojiBtn" title="Emoji" aria-label="Emoji">
-    <svg viewBox="0 0 24 24"><path d="M15 10V9"></path><path d="M16.472 15a6 6 0 0 1-8.943 0"></path><path d="M9 10V9"></path><circle cx="12" cy="12" r="10"></circle></svg>
-  </button>
+  <div class="ct-tools-bar">
+    <!-- Tombol emoji: di HP membuka keyboard emoji bawaan, di desktop membuka panel -->
+    <button type="button" class="ct-tool" id="ctEmojiBtn" title="Emoji" aria-label="Emoji">
+      <svg viewBox="0 0 24 24"><path d="M15 10V9"></path><path d="M16.472 15a6 6 0 0 1-8.943 0"></path><path d="M9 10V9"></path><circle cx="12" cy="12" r="10"></circle></svg>
+    </button>
 
-  <!-- Tombol lampiran -->
-  <button type="button" class="ct-tool" id="ctAttachBtn" title="Lampirkan" aria-label="Lampirkan">
-    <svg viewBox="0 0 24 24"><path d="m16 6-8.414 8.586a2 2 0 0 0 2.829 2.829l8.414-8.586a4 4 0 1 0-5.657-5.657l-8.379 8.551a6 6 0 1 0 8.485 8.485l8.379-8.551"></path></svg>
-  </button>
+    <!-- Tombol lampiran -->
+    <button type="button" class="ct-tool" id="ctAttachBtn" title="Lampirkan" aria-label="Lampirkan">
+      <svg viewBox="0 0 24 24"><path d="m16 6-8.414 8.586a2 2 0 0 0 2.829 2.829l8.414-8.586a4 4 0 1 0-5.657-5.657l-8.379 8.551a6 6 0 1 0 8.485 8.485l8.379-8.551"></path></svg>
+    </button>
+  </div>
 
   <!-- Input tersembunyi untuk membuka keyboard emoji bawaan HP -->
   <input type="text" class="ct-emoji-input" id="ctEmojiInput" inputmode="emoji" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" />
@@ -167,6 +178,39 @@
     return b + ' B';
   }
 
+  // ---------- Auto-grow textarea (maks 10 baris, tumbuh ke atas) ----------
+  const inputTx = msgInput;
+  let ctMaxH = 228;
+  function ctComputeMaxH() {
+    const cs = getComputedStyle(inputTx);
+    const lh = parseFloat(cs.lineHeight) || 0;
+    const pt = parseFloat(cs.paddingTop) || 0;
+    const pb = parseFloat(cs.paddingBottom) || 0;
+    return lh > 0 ? (lh * 10) + pt + pb : 228;
+  }
+  function ctAutoGrow() {
+    inputTx.style.height = 'auto';
+    ctMaxH = ctComputeMaxH();
+    const h = inputTx.scrollHeight;
+    if (h > ctMaxH) {
+      inputTx.style.height = ctMaxH + 'px';
+      inputTx.style.overflowY = 'auto';
+    } else {
+      inputTx.style.height = h + 'px';
+      inputTx.style.overflowY = 'hidden';
+    }
+    // Beri tahu tampilan agar ulang posisi pesan sesuai tinggi box yang baru
+    window.dispatchEvent(new Event('ct-msg-resize'));
+  }
+  // Reset nilai + tinggi setelah pesan terkirim (dipakai kedua tampilan)
+  window.ctResetMsgBox = function () {
+    inputTx.value = '';
+    ctAutoGrow();
+    inputTx.focus();
+  };
+  inputTx.addEventListener('input', ctAutoGrow);
+  ctAutoGrow();
+
   // ---------- Emoji picker (desktop) ----------
   const EMOJIS = ['😀','😁','😂','🤣','😊','😍','😘','😎','🤩','🥰','😇','🙂','😉','😌','😋','😜','🤪','🧐','🤓','😏','😒','🙄','😔','😢','😭','😤','😠','🤯','😳','🥺','😱','😷','🤒','🤕','🤢','🤮','🥵','🥶','😴','😪','🤗','🤔','👍','👎','👌','✌️','🤞','🤙','👏','🙌','🙏','🤝','💪','❤️','🧡','💛','💚','💙','💜','🖤','💖','💯','✨','🔥','🎉','🎂','⭐','🌈','☀️','🌙','⏰','📞','📱','💉','💊','🏥','🚑','🩺','✅','❌','⚠️','ℹ️','📎','📄','📷','🎥','🖼️'];
   const grid = document.getElementById('ctEmojiGrid');
@@ -176,6 +220,7 @@
     b.textContent = e;
     b.onclick = function () {
       msgInput.value += e;
+      ctAutoGrow();
       hide(emojiPanel);
       msgInput.focus();
     };
@@ -198,6 +243,7 @@
     if (emojiInput.value) {
       msgInput.value += emojiInput.value;
       emojiInput.value = '';
+      ctAutoGrow();
       msgInput.focus();
     }
   });
@@ -447,7 +493,7 @@
       const size = fmtBytes(msg.file_size);
       const url = '/api/file/' + esc(msg.id);
       if (mime.indexOf('image/') === 0) {
-        return '<img class="chat-file-img" src="' + url + '" alt="' + name + '" onclick="window.open(\'' + url + '\',\'_blank\')" />';
+        return '<img class="chat-file-img" draggable="false" src="' + url + '" alt="' + name + '" onclick="window.open(\'' + url + '\',\'_blank\')" />';
       }
       if (mime.indexOf('video/') === 0) {
         return '<video class="chat-file-video" controls preload="metadata" src="' + url + '"></video>';

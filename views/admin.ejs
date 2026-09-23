@@ -18,17 +18,63 @@
     }
     * { margin: 0; padding: 0; box-sizing: border-box; }
     body { background: var(--bg); color: var(--text); font-family: 'Segoe UI', sans-serif; }
-    .sidebar { width: 340px; min-height: 100vh; background: var(--surface); border-right: 1px solid var(--border); position: fixed; left: 0; top: 0; display: flex; flex-direction: column; }
-    .sidebar-header { padding: 20px; border-bottom: 1px solid var(--border); display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px; }
+    .sidebar { width: 340px; height: 100vh; height: 100dvh; background: var(--surface); border-right: 1px solid var(--border); position: fixed; left: 0; top: 0; display: flex; flex-direction: column; overflow: hidden; }
+    .sidebar-header { flex: 0 0 auto; padding: 20px; border-bottom: 1px solid var(--border); display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 2px; }
     .sidebar-header h4 { color: var(--primary); font-weight: 700; margin: 0; font-size: 18px; }
-    .sidebar-header .hospital-badge { background: var(--primary-light); color: var(--primary); font-size: 11px; padding: 4px 10px; border-radius: 8px; font-weight: 600; width: 100%; text-align: center; }
-    .sidebar-header a { color: var(--subtle); text-decoration: none; font-size: 13px; }
-    .sidebar-header a:hover { color: var(--primary); }
-    .room-list { flex: 1; overflow-y: auto; padding: 10px; }
-    .room-item { padding: 15px; margin-bottom: 8px; background: var(--bg); border-radius: 10px; cursor: pointer; transition: all 0.2s; text-decoration: none; color: var(--text); display: block; border: 1px solid var(--border); }
-    .room-item:hover { background: var(--primary-light); border-left: 3px solid var(--primary); }
-    .room-item .room-name { font-weight: 600; font-size: 15px; }
+    .sidebar-header .hospital-badge { background: #fff; color: #000; font-size: 11px; font-weight: 600; width: 100%; text-align: left; }
+    .room-search { position: relative; width: 100%; margin-top: 6px; }
+    .room-search svg { position: absolute; left: 10px; top: 50%; transform: translateY(-50%); width: 16px; height: 16px; stroke: var(--subtle); fill: none; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; pointer-events: none; }
+    .room-search input { width: 100%; padding: 9px 12px 9px 34px; border: 1px solid var(--border); border-radius: 10px; background: var(--bg); color: var(--text); font-size: 13px; outline: none; }
+    .room-search input:focus { border-color: var(--primary); }
+    .room-search input::placeholder { color: var(--subtle); }
+    .room-list { flex: 1 1 auto; min-height: 0; overflow-y: auto; padding: 10px; max-height: calc(100vh - 96px); scrollbar-width: thin; scrollbar-color: rgba(100, 116, 139, 0.4) transparent; }
+    .room-list::-webkit-scrollbar { width: 6px; }
+    .room-list::-webkit-scrollbar-track { background: transparent; }
+    .room-list::-webkit-scrollbar-thumb { background: rgba(100, 116, 139, 0.4); border-radius: 3px; }
+    .room-list::-webkit-scrollbar-thumb:hover { background: rgba(100, 116, 139, 0.6); }
+    .room-item { position: relative; padding: 15px; padding-right: 48px; margin-bottom: 8px; background: var(--bg); border-radius: 10px; cursor: pointer; transition: all 0.2s; text-decoration: none; color: var(--text); display: block; border: 1px solid var(--border); }
+    .room-item:hover { background: var(--primary-light); }
     .room-item .last-msg { color: var(--subtle); font-size: 12px; margin-top: 6px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .ct-ic { flex: 0 0 auto; display: inline-flex; align-items: center; justify-content: center; width: 36px; height: 36px; border: none; background: transparent; border-radius: 50%; color: var(--subtle); cursor: pointer; -webkit-tap-highlight-color: transparent; transition: color .15s ease-in-out, background .15s ease-in-out; }
+    .ct-ic:hover { color: var(--primary); background: rgba(14, 165, 233, 0.10); }
+    .ct-ic svg { width: 21px; height: 21px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+    .ct-ic.ct-menu-btn svg { stroke: none; fill: currentColor; }
+    .ct-menu-wrap { position: relative; }
+    .ct-menu-panel { position: absolute; top: calc(100% + 6px); right: 0; min-width: 200px; background: var(--surface); border: 1px solid var(--border); border-radius: 12px; box-shadow: 0 10px 30px rgba(0, 0, 0, 0.15); z-index: 60; padding: 6px; }
+    .ct-menu-panel[hidden] { display: none; }
+    .ct-menu-item { display: flex; align-items: center; gap: 10px; width: 100%; padding: 10px 12px; border: none; background: none; border-radius: 8px; font-size: 14px; color: var(--text); cursor: pointer; text-align: left; }
+    .ct-menu-item:hover { background: var(--primary-light); color: var(--primary); }
+    .ct-menu-item svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; flex: 0 0 auto; }
+    .ct-badge { flex: 0 0 auto; min-width: 20px; height: 20px; padding: 0 6px; border-radius: 10px; background: var(--primary); color: #fff; font-size: 11px; font-weight: 700; display: inline-flex; align-items: center; justify-content: center; }
+    .room-sel-slot { flex: 0 0 auto; display: flex; align-items: center; gap: 2px; margin-left: auto; }
+    .room-sel-slot[hidden] { display: none; }
+    .room-sel-slot .ct-ic svg { width: 20px; height: 20px; }
+    .room-item { -webkit-touch-callout: none; -webkit-user-select: none; user-select: none; touch-action: pan-y; -webkit-tap-highlight-color: transparent; }
+    .room-item .room-name { display: flex; align-items: center; gap: 6px; font-weight: 600; font-size: 15px; }
+    .room-item .pin-ic { width: 13px; height: 13px; fill: var(--primary); color: var(--primary); flex: 0 0 auto; }
+    .room-item .unread-badge {
+      position: absolute; right: 12px; top: 50%; transform: translateY(-50%);
+      display: inline-flex; align-items: center; justify-content: center;
+      min-width: 20px; height: 20px; padding: 0 6px;
+      background: #2196F3; color: #FFF; font-size: 12px; font-weight: 600;
+      border-radius: 50%;
+    }
+    .room-item .unread-badge[hidden] { display: none; }
+    .room-item.selected { position: relative; }
+    .room-item.selected::before {
+      content: ''; position: absolute; left: 0; right: 0; top: -8px; bottom: 4px;
+      background: rgba(14, 165, 233, 0.32); z-index: 5; pointer-events: none; border-radius: 0;
+    }
+    .ct-overlay { position: fixed; inset: 0; background: rgba(15, 23, 42, 0.55); z-index: 200; display: flex; align-items: center; justify-content: center; padding: 20px; }
+    .ct-overlay[hidden] { display: none; }
+    .ct-modal { background: var(--surface); border-radius: 16px; padding: 18px; width: 100%; max-width: 340px; box-shadow: 0 20px 50px rgba(0, 0, 0, 0.25); }
+    .ct-modal h3 { font-size: 17px; margin: 0 0 4px; color: var(--text); }
+    .ct-modal .ct-modal-sub { font-size: 13px; color: var(--subtle); margin-bottom: 12px; }
+    .ct-modal .ct-mbtn { display: block; width: 100%; padding: 11px 14px; border-radius: 10px; border: 1px solid var(--border); background: var(--bg); color: var(--text); font-size: 14px; font-weight: 600; cursor: pointer; margin-top: 8px; text-align: left; }
+    .ct-modal .ct-mbtn:hover { background: var(--primary-light); color: var(--primary); }
+    .ct-modal .ct-mbtn.ct-danger { color: #dc2626; border-color: rgba(220, 38, 38, 0.3); }
+    .ct-modal .ct-mbtn.ct-danger:hover { background: rgba(220, 38, 38, 0.08); }
+    .ct-modal .ct-mbtn.ct-cancel { text-align: center; color: var(--subtle); font-weight: 600; }
     .main-content { margin-left: 340px; padding: 30px; min-height: 100vh; }
     .welcome-box { background: var(--surface); border-radius: 12px; padding: 40px; text-align: center; border: 1px solid var(--border); box-shadow: 0 10px 30px rgba(0, 0, 0, 0.05); }
     .welcome-box h2 { color: var(--primary); margin-bottom: 8px; }
@@ -55,31 +101,48 @@
     }
 
     @media (max-width: 576px) {
-      .sidebar { width: 100%; position: static; min-height: 100vh; border-right: none; }
+      .sidebar { width: 100%; position: fixed; left: 0; top: 0; height: 100vh; height: 100dvh; border-right: none; }
       .main-content { display: none; }
       .sidebar-header h4 { font-size: 16px; }
       .sidebar-header { padding: 15px; }
-      .room-list { padding: 8px; }
-      .room-item { padding: 13px; }
+      .ct-ic { width: 32px; height: 32px; }
+      .room-list { padding: 8px; max-height: calc(100vh - 88px); }
+      .room-item { padding: 13px; padding-right: 46px; }
     }
   </style>
 </head>
 <body>
   <div class="sidebar">
     <div class="sidebar-header">
-      <h4>CHAT ROOMS</h4>
+      <h4>TANGKLET DOKTER</h4>
+      <div class="room-sel-slot" id="roomSelSlot" hidden>
+        <button type="button" class="ct-ic" id="roomSelCancel" title="Batal" aria-label="Batal seleksi"><svg viewBox="0 0 24 24"><path d="M18 6 6 18"></path><path d="M6 6l12 12"></path></svg></button>
+        <span class="ct-badge" id="roomSelCount" aria-hidden="true">0</span>
+        <button type="button" class="ct-ic" id="roomSelPin" title="Sematkan" aria-label="Sematkan room"><svg viewBox="0 0 24 24"><path d="M12 17v5"></path><path d="M9 10.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24V16a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-.76a2 2 0 0 0-1.11-1.79l-1.78-.9A2 2 0 0 1 15 10.76V6h1a2 2 0 0 0 0-4H8a2 2 0 0 0 0 4h1z"></path></svg></button>
+        <button type="button" class="ct-ic" id="roomSelDel" title="Hapus" aria-label="Hapus room"><svg viewBox="0 0 24 24"><path d="M3 6h18"></path><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"></path><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path><path d="M10 11v6"></path><path d="M14 11v6"></path></svg></button>
+      </div>
+      <div class="ct-menu-wrap">
+        <button type="button" class="ct-ic ct-menu-btn" id="adminMenuBtn" title="Menu" aria-label="Menu"><svg viewBox="0 0 24 24"><circle cx="12" cy="5" r="1.7"></circle><circle cx="12" cy="12" r="1.7"></circle><circle cx="12" cy="19" r="1.7"></circle></svg></button>
+        <div class="ct-menu-panel" id="adminMenuPanel" hidden>
+          <button type="button" class="ct-menu-item" id="adminLogoutItem"><svg viewBox="0 0 24 24"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"></path><path d="m16 17 5-5-5-5"></path><path d="M21 12H9"></path></svg><span>Logout</span></button>
+        </div>
+      </div>
       <div class="hospital-badge"><%= adminRumahSakit %></div>
-      <a href="/admin/logout">Logout</a>
+      <div class="room-search">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"></circle><path d="m21 21-4.3-4.3"></path></svg>
+        <input type="text" id="roomSearchInput" placeholder="Cari nama pasien..." autocomplete="off" />
+      </div>
     </div>
     <div class="room-list">
       <% rooms.forEach(room => { %>
-        <a href="/admin/room/<%= room.id %>" class="room-item">
-          <div class="room-name"><%= room.nama %></div>
+        <a href="/admin/room/<%= room.id %>" class="room-item<%= room.isPinned ? ' pinned' : '' %>" data-id="<%= room.id %>" data-room="<%= room.roomId %>">
+          <div class="room-name"><%= room.nama %><% if (room.isPinned) { %><svg class="pin-ic" viewBox="0 0 24 24" aria-label="Disematkan"><path d="M12 17v5"></path><path d="M9 10.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24V16a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-.76a2 2 0 0 0-1.11-1.79l-1.78-.9A2 2 0 0 1 15 10.76V6h1a2 2 0 0 0 0-4H8a2 2 0 0 0 0 4h1z"></path></svg><% } %></div>
           <% if (room.lastMessage) { %>
             <div class="last-msg"><%= room.lastMessage.sender_name %>: <%= room.lastMessage.message %></div>
           <% } else { %>
             <div class="last-msg">Belum ada pesan</div>
           <% } %>
+          <% if (room.unread > 0) { %><span class="unread-badge" data-room="<%= room.roomId %>"><%= room.unread > 99 ? '99+' : room.unread %></span><% } %>
         </a>
       <% }) %>
       <% if (rooms.length === 0) { %>
@@ -108,8 +171,201 @@
     </div>
   </div>
 
+  <div class="ct-overlay" id="roomDelModal" hidden>
+    <div class="ct-modal" role="dialog" aria-modal="true" aria-label="Hapus room">
+      <h3>Hapus total chat?</h3>
+      <p class="ct-modal-sub">Pasien dan seluruh isi percakapan pada <span id="roomDelCount">0</span> room yang dipilih akan dihapus permanen.</p>
+      <button type="button" class="ct-mbtn ct-danger" id="roomDelConfirm">Hapus</button>
+      <button type="button" class="ct-mbtn ct-cancel" id="roomDelCancel">Batal</button>
+    </div>
+  </div>
+
+  <script src="/socket.io/socket.io.js"></script>
   <script>
     setInterval(() => location.reload(), 30000);
+
+    // Dropdown menu titik tiga di header -> Logout
+    (function () {
+      const wrap = document.querySelector('.ct-menu-wrap');
+      const panel = document.getElementById('adminMenuPanel');
+      const btn = document.getElementById('adminMenuBtn');
+      const item = document.getElementById('adminLogoutItem');
+      if (!wrap || !panel || !btn || !item) return;
+      btn.addEventListener('click', (e) => { e.stopPropagation(); panel.hidden = !panel.hidden; });
+      document.addEventListener('click', (e) => { if (!e.target.closest('.ct-menu-wrap')) panel.hidden = true; });
+      document.addEventListener('keydown', (e) => { if (e.key === 'Escape') panel.hidden = true; });
+      item.addEventListener('click', (e) => { e.stopPropagation(); panel.hidden = true; window.location.href = '/admin/logout'; });
+    })();
+
+    // ---------- Mode seleksi room (klik tahan) ----------
+    (function () {
+      const listEl = document.querySelector('.room-list');
+      const slotEl = document.getElementById('roomSelSlot');
+      const countEl = document.getElementById('roomSelCount');
+      const modal = document.getElementById('roomDelModal');
+      const modalCount = document.getElementById('roomDelCount');
+      if (!listEl || !slotEl || !countEl || !modal || !modalCount) return;
+
+      const selection = new Set();
+      let active = false;
+
+      function refresh() {
+        const n = selection.size;
+        if (n === 0) active = false;
+        const has = active && n > 0;
+        listEl.querySelectorAll('.room-item').forEach((it) => {
+          it.classList.toggle('selected', selection.has(Number(it.dataset.id)));
+        });
+        slotEl.hidden = !has;
+        countEl.textContent = n;
+      }
+      function exitSelection() {
+        active = false;
+        selection.clear();
+        refresh();
+      }
+      function toggleSelection(id) {
+        const num = Number(id);
+        if (selection.has(num)) selection.delete(num);
+        else selection.add(num);
+        refresh();
+      }
+      function fireLongPress(id) {
+        if (!active) {
+          active = true;
+          selection.add(Number(id));
+        } else if (!selection.has(Number(id))) {
+          selection.add(Number(id));
+        } else {
+          selection.delete(Number(id));
+        }
+        if (navigator.vibrate) { try { navigator.vibrate(15); } catch (e) {} }
+        refresh();
+      }
+
+      let pressTimer = null;
+      let pressStart = null;
+      let pressId = null;
+      let longFired = false;
+      function cancelPress() {
+        clearTimeout(pressTimer);
+        pressTimer = null;
+        pressStart = null;
+      }
+
+      listEl.addEventListener('pointerdown', (e) => {
+        const item = e.target.closest('.room-item');
+        if (!item) return;
+        longFired = false;
+        cancelPress();
+        pressId = item.dataset.id;
+        pressStart = { x: e.clientX, y: e.clientY };
+        pressTimer = setTimeout(() => { if (pressId != null) fireLongPress(pressId); }, 550);
+      });
+      listEl.addEventListener('pointermove', (e) => {
+        if (pressStart && (Math.abs(e.clientX - pressStart.x) > 12 || Math.abs(e.clientY - pressStart.y) > 12)) {
+          cancelPress();
+        }
+      });
+      listEl.addEventListener('pointerup', cancelPress);
+      listEl.addEventListener('pointercancel', cancelPress);
+      listEl.addEventListener('pointerleave', cancelPress);
+      listEl.addEventListener('contextmenu', (e) => { if (e.target.closest('.room-item')) e.preventDefault(); });
+
+      // Batalkan klik yang muncul tepat setelah klik tahan;
+      // saat mode seleksi aktif, klik room = pilih/batal pilih (bukan navigasi)
+      document.addEventListener('click', (e) => {
+        if (longFired) {
+          longFired = false;
+          e.preventDefault();
+          e.stopPropagation();
+          return;
+        }
+        const item = e.target.closest('.room-item');
+        if (!item) return;
+        if (active) {
+          e.preventDefault();
+          e.stopPropagation();
+          toggleSelection(item.dataset.id);
+        }
+      }, true);
+
+      document.getElementById('roomSelCancel').addEventListener('click', exitSelection);
+
+      document.getElementById('roomSelPin').addEventListener('click', () => {
+        const ids = Array.from(selection);
+        if (!ids.length) return;
+        const allPinned = ids.every((id) => {
+          const it = listEl.querySelector('.room-item[data-id="' + id + '"]');
+          return it && it.classList.contains('pinned');
+        });
+        fetch('/api/room/pin', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ ids, pinned: !allPinned })
+        }).then((r) => r.json())
+          .then((res) => { if (res && res.ok) location.reload(); else alert('Gagal menyematkan room.'); })
+          .catch(() => alert('Gagal menyematkan room.'));
+      });
+
+      document.getElementById('roomSelDel').addEventListener('click', () => {
+        if (!selection.size) return;
+        modalCount.textContent = selection.size;
+        modal.hidden = false;
+      });
+      document.getElementById('roomDelCancel').addEventListener('click', () => { modal.hidden = true; });
+      modal.addEventListener('click', (e) => { if (e.target === modal) modal.hidden = true; });
+      document.getElementById('roomDelConfirm').addEventListener('click', () => {
+        const ids = Array.from(selection);
+        modal.hidden = true;
+        fetch('/api/room/delete', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ ids })
+        }).then((r) => r.json())
+          .then((res) => { if (res && res.ok) location.reload(); else alert('Gagal menghapus room.'); })
+          .catch(() => alert('Gagal menghapus room.'));
+      });
+
+      document.addEventListener('keydown', (e) => { if (e.key === 'Escape') exitSelection(); });
+    })();
+
+    // ---------- Pencarian nama pasien ----------
+    (function () {
+      const input = document.getElementById('roomSearchInput');
+      const listEl = document.querySelector('.room-list');
+      if (!input || !listEl) return;
+      input.addEventListener('input', () => {
+        const q = input.value.trim().toLowerCase();
+        listEl.querySelectorAll('.room-item').forEach((it) => {
+          const name = it.querySelector('.room-name').textContent.toLowerCase();
+          it.hidden = !name.includes(q);
+        });
+      });
+    })();
+
+    // ---------- Badge notifikasi pesan baru (real-time) ----------
+    (function () {
+      const badgeHost = document.querySelector('.hospital-badge');
+      if (!badgeHost) return;
+      const socket = io();
+      socket.emit('join-admin-badges', badgeHost.textContent.trim());
+      function setBadge(roomId, count) {
+        const item = document.querySelector('.room-item[data-room="' + roomId + '"]');
+        if (!item) return;
+        let b = item.querySelector('.unread-badge');
+        if (!b) {
+          b = document.createElement('span');
+          b.className = 'unread-badge';
+          item.appendChild(b);
+        }
+        b.textContent = count > 99 ? '99+' : String(count);
+        b.hidden = count <= 0;
+      }
+      socket.on('unread-update', (d) => {
+        if (d && d.roomId != null) setBadge(d.roomId, Number(d.count) || 0);
+      });
+    })();
   </script>
 </body>
 </html>

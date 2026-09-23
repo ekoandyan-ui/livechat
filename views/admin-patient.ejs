@@ -19,8 +19,9 @@
     * { margin: 0; padding: 0; box-sizing: border-box; }
     body { background: var(--bg); color: var(--text); min-height: 100vh; font-family: 'Segoe UI', sans-serif; }
     .page-header { background: var(--surface); padding: 15px 25px; border-bottom: 1px solid var(--border); display: flex; align-items: center; gap: 15px; }
-    .page-header .back-btn { color: var(--primary); text-decoration: none; font-weight: 600; margin-right: 15px; }
-    .page-header .back-btn:hover { color: var(--primary-dark); }
+    .page-header .back-btn { color: var(--primary); text-decoration: none; display: inline-flex; align-items: center; justify-content: center; width: 34px; height: 34px; flex: 0 0 auto; margin-right: 8px; border-radius: 8px; }
+    .page-header .back-btn svg { width: 22px; height: 22px; }
+    .page-header .back-btn:hover { background: var(--primary-light); }
     .page-header h4 { margin: 0; font-size: 18px; }
     .page-header .rs-badge { background: var(--primary-light); color: var(--primary); font-size: 11px; padding: 4px 10px; border-radius: 8px; font-weight: 600; margin-left: auto; }
     .container-card { max-width: 600px; margin: 25px auto; padding: 0 15px; }
@@ -39,7 +40,7 @@
 
     @media (max-width: 576px) {
       .page-header { padding: 10px 12px; gap: 8px; }
-      .page-header .back-btn { font-size: 14px; margin-right: 8px; }
+      .page-header .back-btn { margin-right: 6px; }
       .page-header h4 { font-size: 16px; }
       .container-card { margin: 15px auto; }
       .data-row { padding: 13px 15px; gap: 10px; }
@@ -51,7 +52,7 @@
 </head>
 <body>
   <div class="page-header">
-    <a href="/admin/room/<%= user.id %>" class="back-btn">&larr; Kembali</a>
+    <a href="/admin/room/<%= user.id %>" class="back-btn" aria-label="Kembali" title="Kembali"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m12 19-7-7 7-7"></path><path d="M19 12H5"></path></svg></a>
     <h4>DATA PASIEN</h4>
     <span class="rs-badge"><%= adminRumahSakit %></span>
   </div>
