@@ -166,7 +166,7 @@
     window.addEventListener('ct-msg-resize', updateChatLayout);
     updateChatLayout();
 
-    socket.emit('join-room', roomId);
+    socket.emit('join-room', { roomId, adminName });
 
     function scrollToBottom() {
       chatMessages.scrollTop = chatMessages.scrollHeight;

@@ -57,6 +57,19 @@ db.query(
   .then(() => console.log("Kolom is_pinned siap."))
   .catch((err) => console.error("Gagal menambah kolom is_pinned:", err.message));
 
+// Pastikan tabel notifikasi unread (badge pesan baru) tersedia.
+db.query(
+  `CREATE TABLE IF NOT EXISTS room_unread (
+     admin_name TEXT NOT NULL,
+     room_id TEXT NOT NULL,
+     unread_count INTEGER NOT NULL DEFAULT 0,
+     updated_at TIMESTAMPTZ DEFAULT NOW(),
+     PRIMARY KEY (admin_name, room_id)
+   );`,
+)
+  .then(() => console.log("Tabel room_unread siap."))
+  .catch((err) => console.error("Gagal membuat tabel room_unread:", err.message));
+
 // =============================================
 // BANTUAN: Pesan & visibilitas
 // =============================================
@@ -327,6 +340,18 @@ app.get("/admin", requireAdmin, async (req, res) => {
       });
     }
 
+    // Jumlah pesan belum dibaca per room untuk admin ini
+    const unreadRes = await db.query(
+      "SELECT room_id, unread_count FROM room_unread WHERE admin_name = $1 AND unread_count > 0",
+      [req.session.adminUser],
+    );
+    const unreadMap = new Map(
+      unreadRes.rows.map((r) => [r.room_id, Number(r.unread_count)]),
+    );
+    for (const room of rooms) {
+      room.unread = unreadMap.get(room.roomId) || 0;
+    }
+
     res.render("admin", {
       rooms,
       adminUser: req.session.adminUser,
@@ -363,6 +388,9 @@ app.get("/admin/room/:patientId", requireAdmin, async (req, res) => {
     const roomId = `${user.rumah_sakit}_${user.id}`;
 
     const messages = await fetchRoomMessages(roomId, req.session.adminUser, 0);
+
+    // Admin membuka room -> reset unread
+    markRoomRead(roomId, req.session.adminUser);
 
     res.render("admin-room", {
       roomId,
@@ -609,6 +637,8 @@ app.post("/api/upload", async (req, res) => {
       reply: m.reply,
     });
 
+    bumpUnread(roomId);
+
     res.json({ ok: true, id: m.id });
   } catch (err) {
     console.error("Gagal simpan lampiran:", err.message);
@@ -735,11 +765,78 @@ app.get("/api/rooms", requireAdmin, async (req, res) => {
         totalPesan: parseInt(msgCount.rows[0].total),
       });
     }
+    const unreadRes = await db.query(
+      "SELECT room_id, unread_count FROM room_unread WHERE admin_name = $1 AND unread_count > 0",
+      [req.session.adminUser],
+    );
+    const unreadMap = new Map(
+      unreadRes.rows.map((r) => [r.room_id, Number(r.unread_count)]),
+    );
+    for (const room of rooms) {
+      room.unread = unreadMap.get(room.roomId) || 0;
+    }
     res.json({ rooms });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 });
+
+// =============================================
+// NOTIFIKASI BELUM DIBACA (unread) per admin & room
+// =============================================
+const onlineAdmins = {}; // { roomId: Set of admin usernames yang sedang membuka (membaca) room }
+const ADMIN_CHAN = (rumahSakit) => `admin-rs:${rumahSakit}`;
+
+// Prefix rumah sakit dari roomId (format: "<rumah_sakit>_<id_pasien>")
+function roomHospital(roomId) {
+  const i = roomId.lastIndexOf("_");
+  return i > -1 ? roomId.substring(0, i) : roomId;
+}
+
+// Tambah 1 hitung belum dibaca untuk setiap admin rumah sakit tsb
+// yang sedang TIDAK membuka room (kecuali sedang dibaca).
+async function bumpUnread(roomId) {
+  const rumahSakit = roomHospital(roomId);
+  const reading = onlineAdmins[roomId] ? Array.from(onlineAdmins[roomId]) : [];
+  try {
+    const res = await db.query(
+      `INSERT INTO room_unread (admin_name, room_id, unread_count)
+       SELECT username, $2, 1 FROM admins
+       WHERE rumah_sakit = $1 AND username <> ALL($3::text[])
+       ON CONFLICT (admin_name, room_id)
+         DO UPDATE SET unread_count = room_unread.unread_count + 1, updated_at = NOW()
+       RETURNING admin_name, unread_count`,
+      [rumahSakit, roomId, reading],
+    );
+    for (const row of res.rows) {
+      io.to(ADMIN_CHAN(rumahSakit)).emit("unread-update", {
+        roomId,
+        count: Number(row.unread_count),
+      });
+    }
+  } catch (err) {
+    console.error("Error bumpUnread:", err.message);
+  }
+}
+
+// Reset hitung belum dibaca menjadi 0 untuk admin pada room tsb.
+async function markRoomRead(roomId, adminName) {
+  if (!roomId || !adminName) return;
+  try {
+    const res = await db.query(
+      "UPDATE room_unread SET unread_count = 0, updated_at = NOW() WHERE admin_name = $1 AND room_id = $2",
+      [adminName, roomId],
+    );
+    if (res.rowCount > 0) {
+      io.to(ADMIN_CHAN(roomHospital(roomId))).emit("unread-update", {
+        roomId,
+        count: 0,
+      });
+    }
+  } catch (err) {
+    console.error("Error markRoomRead:", err.message);
+  }
+}
 
 // =============================================
 // SOCKET.IO: Room-based Realtime Chat (hospital-scoped)
@@ -750,9 +847,18 @@ io.on("connection", (socket) => {
   console.log("Socket connected:", socket.id);
 
   // Join ke room tertentu (roomId sekarang termasuk prefix rumah_sakit)
-  socket.on("join-room", (roomId) => {
+  // Dari tampilan admin, payload berupa { roomId, adminName } untuk
+  // menandai admin tersebut sedang membaca room (reset unread).
+  socket.on("join-room", (payload) => {
+    const roomId =
+      payload && typeof payload === "object" ? payload.roomId : payload;
+    const adminName =
+      payload && typeof payload === "object" ? payload.adminName : null;
+    if (!roomId) return;
+
     socket.join(roomId);
     socket.roomId = roomId;
+    socket.adminName = adminName || null;
 
     if (!onlineUsers[roomId]) onlineUsers[roomId] = new Set();
     onlineUsers[roomId].add(socket.id);
@@ -760,6 +866,19 @@ io.on("connection", (socket) => {
     // Beri tahu semua di room jumlah user online
     io.to(roomId).emit("user-count", onlineUsers[roomId].size);
     console.log(`Socket ${socket.id} joined room ${roomId}`);
+
+    // Admin yang membuka room: tanda sedang membaca + reset unread
+    if (adminName) {
+      if (!onlineAdmins[roomId]) onlineAdmins[roomId] = new Set();
+      onlineAdmins[roomId].add(adminName);
+      socket.join(ADMIN_CHAN(roomHospital(roomId)));
+      markRoomRead(roomId, adminName);
+    }
+  });
+
+  // Halaman daftar room admin: subscribe ke channel badge unread
+  socket.on("join-admin-badges", (rumahSakit) => {
+    if (rumahSakit) socket.join(ADMIN_CHAN(String(rumahSakit)));
   });
 
   // Kirim pesan
@@ -793,6 +912,8 @@ io.on("connection", (socket) => {
         reply_to: savedMsg.reply_to,
         reply: savedMsg.reply,
       });
+
+      bumpUnread(roomId);
     } catch (err) {
       console.error("Gagal simpan pesan:", err.message);
     }
@@ -801,6 +922,10 @@ io.on("connection", (socket) => {
   // Disconnect
   socket.on("disconnect", () => {
     const roomId = socket.roomId;
+    if (roomId && socket.adminName && onlineAdmins[roomId]) {
+      onlineAdmins[roomId].delete(socket.adminName);
+      if (onlineAdmins[roomId].size === 0) delete onlineAdmins[roomId];
+    }
     if (roomId && onlineUsers[roomId]) {
       onlineUsers[roomId].delete(socket.id);
       io.to(roomId).emit("user-count", onlineUsers[roomId].size);

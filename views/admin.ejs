@@ -19,17 +19,21 @@
     * { margin: 0; padding: 0; box-sizing: border-box; }
     body { background: var(--bg); color: var(--text); font-family: 'Segoe UI', sans-serif; }
     .sidebar { width: 340px; height: 100vh; height: 100dvh; background: var(--surface); border-right: 1px solid var(--border); position: fixed; left: 0; top: 0; display: flex; flex-direction: column; overflow: hidden; }
-    .sidebar-header { flex: 0 0 auto; padding: 20px; border-bottom: 1px solid var(--border); display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px; }
+    .sidebar-header { flex: 0 0 auto; padding: 20px; border-bottom: 1px solid var(--border); display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 2px; }
     .sidebar-header h4 { color: var(--primary); font-weight: 700; margin: 0; font-size: 18px; }
-    .sidebar-header .hospital-badge { background: var(--primary-light); color: var(--primary); font-size: 11px; padding: 4px 10px; border-radius: 8px; font-weight: 600; width: 100%; text-align: center; }
+    .sidebar-header .hospital-badge { background: #fff; color: #000; font-size: 11px; font-weight: 600; width: 100%; text-align: left; }
+    .room-search { position: relative; width: 100%; margin-top: 6px; }
+    .room-search svg { position: absolute; left: 10px; top: 50%; transform: translateY(-50%); width: 16px; height: 16px; stroke: var(--subtle); fill: none; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; pointer-events: none; }
+    .room-search input { width: 100%; padding: 9px 12px 9px 34px; border: 1px solid var(--border); border-radius: 10px; background: var(--bg); color: var(--text); font-size: 13px; outline: none; }
+    .room-search input:focus { border-color: var(--primary); }
+    .room-search input::placeholder { color: var(--subtle); }
     .room-list { flex: 1 1 auto; min-height: 0; overflow-y: auto; padding: 10px; max-height: calc(100vh - 96px); scrollbar-width: thin; scrollbar-color: rgba(100, 116, 139, 0.4) transparent; }
     .room-list::-webkit-scrollbar { width: 6px; }
     .room-list::-webkit-scrollbar-track { background: transparent; }
     .room-list::-webkit-scrollbar-thumb { background: rgba(100, 116, 139, 0.4); border-radius: 3px; }
     .room-list::-webkit-scrollbar-thumb:hover { background: rgba(100, 116, 139, 0.6); }
-    .room-item { padding: 15px; margin-bottom: 8px; background: var(--bg); border-radius: 10px; cursor: pointer; transition: all 0.2s; text-decoration: none; color: var(--text); display: block; border: 1px solid var(--border); }
-    .room-item:hover { background: var(--primary-light); border-left: 3px solid var(--primary); }
-    .room-item .room-name { font-weight: 600; font-size: 15px; }
+    .room-item { position: relative; padding: 15px; padding-right: 48px; margin-bottom: 8px; background: var(--bg); border-radius: 10px; cursor: pointer; transition: all 0.2s; text-decoration: none; color: var(--text); display: block; border: 1px solid var(--border); }
+    .room-item:hover { background: var(--primary-light); }
     .room-item .last-msg { color: var(--subtle); font-size: 12px; margin-top: 6px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
     .ct-ic { flex: 0 0 auto; display: inline-flex; align-items: center; justify-content: center; width: 36px; height: 36px; border: none; background: transparent; border-radius: 50%; color: var(--subtle); cursor: pointer; -webkit-tap-highlight-color: transparent; transition: color .15s ease-in-out, background .15s ease-in-out; }
     .ct-ic:hover { color: var(--primary); background: rgba(14, 165, 233, 0.10); }
@@ -46,10 +50,21 @@
     .room-sel-slot[hidden] { display: none; }
     .room-sel-slot .ct-ic svg { width: 20px; height: 20px; }
     .room-item { -webkit-touch-callout: none; -webkit-user-select: none; user-select: none; touch-action: pan-y; -webkit-tap-highlight-color: transparent; }
-    .room-item .room-name { display: flex; align-items: center; gap: 6px; }
+    .room-item .room-name { display: flex; align-items: center; gap: 6px; font-weight: 600; font-size: 15px; }
     .room-item .pin-ic { width: 13px; height: 13px; fill: var(--primary); color: var(--primary); flex: 0 0 auto; }
-    .room-item.selected { background: var(--primary-light); border-color: var(--primary); }
-    .room-item.selected .room-name { color: var(--primary-dark); }
+    .room-item .unread-badge {
+      position: absolute; right: 12px; top: 50%; transform: translateY(-50%);
+      display: inline-flex; align-items: center; justify-content: center;
+      min-width: 20px; height: 20px; padding: 0 6px;
+      background: #2196F3; color: #FFF; font-size: 12px; font-weight: 600;
+      border-radius: 50%;
+    }
+    .room-item .unread-badge[hidden] { display: none; }
+    .room-item.selected { position: relative; }
+    .room-item.selected::before {
+      content: ''; position: absolute; left: 0; right: 0; top: -8px; bottom: 4px;
+      background: rgba(14, 165, 233, 0.32); z-index: 5; pointer-events: none; border-radius: 0;
+    }
     .ct-overlay { position: fixed; inset: 0; background: rgba(15, 23, 42, 0.55); z-index: 200; display: flex; align-items: center; justify-content: center; padding: 20px; }
     .ct-overlay[hidden] { display: none; }
     .ct-modal { background: var(--surface); border-radius: 16px; padding: 18px; width: 100%; max-width: 340px; box-shadow: 0 20px 50px rgba(0, 0, 0, 0.25); }
@@ -92,7 +107,7 @@
       .sidebar-header { padding: 15px; }
       .ct-ic { width: 32px; height: 32px; }
       .room-list { padding: 8px; max-height: calc(100vh - 88px); }
-      .room-item { padding: 13px; }
+      .room-item { padding: 13px; padding-right: 46px; }
     }
   </style>
 </head>
@@ -113,16 +128,21 @@
         </div>
       </div>
       <div class="hospital-badge"><%= adminRumahSakit %></div>
+      <div class="room-search">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"></circle><path d="m21 21-4.3-4.3"></path></svg>
+        <input type="text" id="roomSearchInput" placeholder="Cari nama pasien..." autocomplete="off" />
+      </div>
     </div>
     <div class="room-list">
       <% rooms.forEach(room => { %>
-        <a href="/admin/room/<%= room.id %>" class="room-item<%= room.isPinned ? ' pinned' : '' %>" data-id="<%= room.id %>">
+        <a href="/admin/room/<%= room.id %>" class="room-item<%= room.isPinned ? ' pinned' : '' %>" data-id="<%= room.id %>" data-room="<%= room.roomId %>">
           <div class="room-name"><%= room.nama %><% if (room.isPinned) { %><svg class="pin-ic" viewBox="0 0 24 24" aria-label="Disematkan"><path d="M12 17v5"></path><path d="M9 10.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24V16a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-.76a2 2 0 0 0-1.11-1.79l-1.78-.9A2 2 0 0 1 15 10.76V6h1a2 2 0 0 0 0-4H8a2 2 0 0 0 0 4h1z"></path></svg><% } %></div>
           <% if (room.lastMessage) { %>
             <div class="last-msg"><%= room.lastMessage.sender_name %>: <%= room.lastMessage.message %></div>
           <% } else { %>
             <div class="last-msg">Belum ada pesan</div>
           <% } %>
+          <% if (room.unread > 0) { %><span class="unread-badge" data-room="<%= room.roomId %>"><%= room.unread > 99 ? '99+' : room.unread %></span><% } %>
         </a>
       <% }) %>
       <% if (rooms.length === 0) { %>
@@ -160,6 +180,7 @@
     </div>
   </div>
 
+  <script src="/socket.io/socket.io.js"></script>
   <script>
     setInterval(() => location.reload(), 30000);
 
@@ -190,6 +211,7 @@
 
       function refresh() {
         const n = selection.size;
+        if (n === 0) active = false;
         const has = active && n > 0;
         listEl.querySelectorAll('.room-item').forEach((it) => {
           it.classList.toggle('selected', selection.has(Number(it.dataset.id)));
@@ -306,6 +328,43 @@
       });
 
       document.addEventListener('keydown', (e) => { if (e.key === 'Escape') exitSelection(); });
+    })();
+
+    // ---------- Pencarian nama pasien ----------
+    (function () {
+      const input = document.getElementById('roomSearchInput');
+      const listEl = document.querySelector('.room-list');
+      if (!input || !listEl) return;
+      input.addEventListener('input', () => {
+        const q = input.value.trim().toLowerCase();
+        listEl.querySelectorAll('.room-item').forEach((it) => {
+          const name = it.querySelector('.room-name').textContent.toLowerCase();
+          it.hidden = !name.includes(q);
+        });
+      });
+    })();
+
+    // ---------- Badge notifikasi pesan baru (real-time) ----------
+    (function () {
+      const badgeHost = document.querySelector('.hospital-badge');
+      if (!badgeHost) return;
+      const socket = io();
+      socket.emit('join-admin-badges', badgeHost.textContent.trim());
+      function setBadge(roomId, count) {
+        const item = document.querySelector('.room-item[data-room="' + roomId + '"]');
+        if (!item) return;
+        let b = item.querySelector('.unread-badge');
+        if (!b) {
+          b = document.createElement('span');
+          b.className = 'unread-badge';
+          item.appendChild(b);
+        }
+        b.textContent = count > 99 ? '99+' : String(count);
+        b.hidden = count <= 0;
+      }
+      socket.on('unread-update', (d) => {
+        if (d && d.roomId != null) setBadge(d.roomId, Number(d.count) || 0);
+      });
     })();
   </script>
 </body>
