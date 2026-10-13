@@ -164,6 +164,11 @@
   const cameraVideo = document.getElementById('ctCameraVideo');
   const isMobile = /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent);
 
+  function getCSRF() {
+    const m = document.querySelector('meta[name="csrf-token"]');
+    return m ? m.content : '';
+  }
+
   function show(el) { el.hidden = false; }
   function hide(el) { el.hidden = true; }
   function esc(s) {
@@ -466,7 +471,7 @@
       const dataUrl = await blobToBase64(blob);
       const res = await fetch('/api/upload', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', 'x-csrf-token': getCSRF() },
         body: JSON.stringify({
           roomId: roomId,
           senderName: senderName,

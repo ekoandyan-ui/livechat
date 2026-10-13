@@ -4,6 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Admin Dashboard - Live Chat</title>
+  <meta name="csrf-token" content="<%= csrfToken %>" />
   <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet" />
   <style>
     :root {
@@ -182,6 +183,10 @@
 
   <script src="/socket.io/socket.io.js"></script>
   <script>
+    function getCSRF() {
+      var m = document.querySelector('meta[name="csrf-token"]');
+      return m ? m.content : '';
+    }
     setInterval(() => location.reload(), 30000);
 
     // Dropdown menu titik tiga di header -> Logout
@@ -301,7 +306,7 @@
         });
         fetch('/api/room/pin', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: { 'Content-Type': 'application/json', 'x-csrf-token': getCSRF() },
           body: JSON.stringify({ ids, pinned: !allPinned })
         }).then((r) => r.json())
           .then((res) => { if (res && res.ok) location.reload(); else alert('Gagal menyematkan room.'); })
@@ -320,7 +325,7 @@
         modal.hidden = true;
         fetch('/api/room/delete', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: { 'Content-Type': 'application/json', 'x-csrf-token': getCSRF() },
           body: JSON.stringify({ ids })
         }).then((r) => r.json())
           .then((res) => { if (res && res.ok) location.reload(); else alert('Gagal menghapus room.'); })
@@ -351,7 +356,10 @@
       const socket = io();
       socket.emit('join-admin-badges', badgeHost.textContent.trim());
       function setBadge(roomId, count) {
-        const item = document.querySelector('.room-item[data-room="' + roomId + '"]');
+        var item = null;
+        document.querySelectorAll('.room-item').forEach(function (it) {
+          if (!item && it.getAttribute('data-room') === String(roomId)) item = it;
+        });
         if (!item) return;
         let b = item.querySelector('.unread-badge');
         if (!b) {

@@ -3,6 +3,9 @@ const express = require("express");
 const { Pool } = require("pg");
 const BodyParser = require("body-parser");
 const session = require("express-session");
+const bcrypt = require("bcryptjs");
+const crypto = require("crypto");
+const rateLimit = require("express-rate-limit");
 
 const app = express();
 const http = require("http");
@@ -10,18 +13,89 @@ const server = http.createServer(app);
 const { Server } = require("socket.io");
 const io = new Server(server);
 
+const IS_PRODUCTION = process.env.NODE_ENV === "production";
+const SESSION_SECRET =
+  process.env.SESSION_SECRET ||
+  (IS_PRODUCTION
+    ? ""
+    : "insecure-dev-secret-change-me-in-env");
+
+if (!SESSION_SECRET) {
+  throw new Error("SESSION_SECRET wajib diisi pada environment production.");
+}
+
+app.set("trust proxy", 1); // Di belakang reverse-proxy (Vercel, dll.)
 app.use(BodyParser.urlencoded({ extended: true, limit: "50mb" }));
 app.use(BodyParser.json({ limit: "50mb" }));
-app.use(
-  session({
-    secret: "dinkes-chat-secret-2026",
-    resave: false,
-    saveUninitialized: false,
-  }),
-);
+
+const sessionMiddleware = session({
+  secret: SESSION_SECRET,
+  resave: false,
+  saveUninitialized: false,
+  cookie: {
+    httpOnly: true,
+    secure: IS_PRODUCTION || process.env.COOKIE_SECURE === "true",
+    sameSite: "lax",
+    maxAge: 7 * 24 * 60 * 60 * 1000,
+  },
+});
+
+app.use(sessionMiddleware);
+io.engine.use(sessionMiddleware);
 
 app.set("view engine", "ejs");
 app.set("views", "views");
+
+// =============================================
+// IDENTITAS SESSION (pasien / admin)
+// =============================================
+// Pasien: { type:'patient', roomId, name, rumahSakit }
+// Admin : { type:'admin', name, rumahSakit }
+function sessionIdentity(req) {
+  const s = req.session;
+  if (!s) return null;
+  if (s.isAdmin && s.adminUser) {
+    return { type: "admin", name: s.adminUser, rumahSakit: s.adminRumahSakit };
+  }
+  if (s.patientRoomId) {
+    return {
+      type: "patient",
+      roomId: s.patientRoomId,
+      name: s.patientName,
+      rumahSakit: s.patientRumahSakit,
+    };
+  }
+  return null;
+}
+
+// Cek: identitas boleh mengakses room tertentu?
+function identityCanAccessRoom(id, roomId) {
+  if (!id || !roomId) return false;
+  if (id.type === "patient") return roomId === id.roomId;
+  if (id.type === "admin") return roomHospital(roomId) === id.rumahSakit;
+  return false;
+}
+
+// =============================================
+// CSRF PROTECTION (token per session)
+// =============================================
+app.use((req, res, next) => {
+  if (!req.session.csrfToken) {
+    req.session.csrfToken = crypto.randomBytes(16).toString("hex");
+  }
+  res.locals.csrfToken = req.session.csrfToken;
+  next();
+});
+
+app.use((req, res, next) => {
+  if (["GET", "HEAD", "OPTIONS"].indexOf(req.method) !== -1) return next();
+  const token =
+    req.get("x-csrf-token") || (req.body && req.body._csrf) || "";
+  if (!token || token !== req.session.csrfToken) {
+    return res.status(403).json({ error: "CSRF token tidak valid." });
+  }
+  next();
+});
 
 // =============================================
 // MIDDLEWARE: Cegah browser cache halaman admin
@@ -69,6 +143,87 @@ db.query(
 )
   .then(() => console.log("Tabel room_unread siap."))
   .catch((err) => console.error("Gagal membuat tabel room_unread:", err.message));
+
+// =============================================
+// KEAMANAN UPLOAD: magic bytes + whitelist MIME
+// =============================================
+// MIME dokumen yang diizinkan (disimpan apa adanya dari client).
+const DOC_MIME_ALLOW = new Set([
+  "application/pdf",
+  "application/msword",
+  "application/vnd.ms-excel",
+  "application/vnd.ms-powerpoint",
+  "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+  "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+  "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+  "application/zip",
+  "text/plain",
+  "text/csv",
+]);
+
+// Deteksi tipe file dari isi byte (bukan dari klaim client).
+function sniffUpload(buf) {
+  if (!buf || buf.length < 4) return null;
+  // Gambar
+  if (buf[0] === 0xff && buf[1] === 0xd8 && buf[2] === 0xff)
+    return { kind: "media", mime: "image/jpeg" };
+  if (buf.readUInt32BE(0) === 0x89504e47)
+    return { kind: "media", mime: "image/png" };
+  if (buf.toString("latin1", 0, 4) === "GIF8")
+    return { kind: "media", mime: "image/gif" };
+  if (
+    buf.toString("latin1", 0, 4) === "RIFF" &&
+    buf.toString("latin1", 8, 12) === "WEBP"
+  )
+    return { kind: "media", mime: "image/webp" };
+  if (buf.toString("latin1", 0, 2) === "BM" && buf.length >= 14)
+    return { kind: "media", mime: "image/bmp" };
+  // Video
+  if (buf[0] === 0x1a && buf[1] === 0x45 && buf[2] === 0xdf && buf[3] === 0xa3)
+    return { kind: "media", mime: "video/webm" };
+  if (buf.toString("latin1", 4, 8) === "ftyp") {
+    const brand = buf.toString("latin1", 8, 12);
+    if (brand === "qt  ") return { kind: "media", mime: "video/quicktime" };
+    if (/^[a-zA-Z0-9]+$/.test(brand.trim()))
+      return { kind: "media", mime: "video/mp4" };
+  }
+  // Dokumen
+  if (buf.toString("latin1", 0, 4) === "%PDF")
+    return { kind: "doc", mime: "application/pdf" };
+  if (buf.readUInt32LE(0) === 0x04034b50)
+    return { kind: "doc", mime: "application/zip" };
+  if (
+    buf[0] === 0xd0 &&
+    buf[1] === 0xcf &&
+    buf[2] === 0x11 &&
+    buf[3] === 0xe0
+  )
+    return { kind: "doc", mime: "application/octet-stream" }; // doc/xls/ppt lama
+  return null;
+}
+
+// =============================================
+// UPGRADE PASSWORD ADMIN (plaintext -> bcrypt) saat start
+// =============================================
+async function upgradePlaintextPasswords() {
+  const res = await db.query("SELECT id, password FROM admins");
+  for (const row of res.rows) {
+    const pw = String(row.password || "");
+    if (pw.startsWith("$2a$") || pw.startsWith("$2b$") || pw.startsWith("$2y$")) {
+      continue;
+    }
+    const hash = bcrypt.hashSync(pw, 10);
+    await db.query("UPDATE admins SET password = $1 WHERE id = $2", [
+      hash,
+      row.id,
+    ]);
+    console.log(`Password admin id=${row.id} di-hash ke bcrypt.`);
+  }
+}
+
+upgradePlaintextPasswords().catch((err) =>
+  console.error("Gagal upgrade password admin:", err.message),
+);
 
 // =============================================
 // BANTUAN: Pesan & visibilitas
@@ -175,9 +330,10 @@ function requireAdmin(req, res, next) {
 }
 
 // =============================================
-// ROUTE: Test Database Connection
+// ROUTE: Test Database Connection (hanya non-production)
 // =============================================
 app.get("/test-db", async (req, res) => {
+  if (IS_PRODUCTION) return res.status(404).send("Not Found");
   try {
     const urlCheck = process.env.DATABASE_URL ? "ADA" : "TIDAK ADA";
     const result = await db.query("SELECT NOW() as waktu");
@@ -191,9 +347,9 @@ app.get("/test-db", async (req, res) => {
       tabel: tables.rows.map((r) => r.table_name),
     });
   } catch (err) {
+    console.error("Error /test-db:", err.message);
     res.json({
       status: "ERROR",
-      pesan: err.message,
       databaseUrl: process.env.DATABASE_URL ? "ADA" : "TIDAK ADA",
     });
   }
@@ -224,7 +380,15 @@ app.post("/tambah", async (req, res) => {
     );
     const newUserId = result.rows[0].id;
     const roomId = `${rumah_sakit}_${newUserId}`;
-    res.redirect(`/chat/${encodeURIComponent(roomId)}`);
+    req.session.regenerate((err) => {
+      req.session.patientRoomId = roomId;
+      req.session.patientName = nama;
+      req.session.patientRumahSakit = rumah_sakit;
+      req.session.csrfToken = crypto.randomBytes(16).toString("hex");
+      const target = `/chat/${encodeURIComponent(roomId)}`;
+      if (err) return res.redirect(target);
+      res.redirect(target);
+    });
   } catch (err) {
     console.error("Error tambah data:", err.message);
     res.status(500).send("Gagal menyimpan data.");
@@ -255,7 +419,13 @@ app.get("/chat/:roomId", async (req, res) => {
     // Jika pasien sudah dihapus admin (total chat dihapus), otomatis kembali ke form awal
     if (!user) return res.redirect("/");
 
-    const messages = await fetchRoomMessages(roomId, user.nama, 200);
+    // Hanya pemilik room (identitas pasien dari session) yang boleh membuka chat
+    const id = sessionIdentity(req);
+    if (!id || id.type !== "patient" || id.roomId !== roomId) {
+      return res.redirect("/");
+    }
+
+    const messages = await fetchRoomMessages(roomId, id.name, 200);
 
     res.render("chat", {
       roomId,
@@ -278,21 +448,53 @@ app.get("/admin/login", (req, res) => {
   res.render("admin-login", { error: null });
 });
 
-app.post("/admin/login", async (req, res) => {
+const loginLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  limit: 20,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: "Terlalu banyak percobaan login. Coba lagi nanti." },
+});
+
+app.post("/admin/login", loginLimiter, async (req, res) => {
   const { username, password } = req.body;
   try {
     const result = await db.query(
-      "SELECT * FROM admins WHERE username = $1 AND password = $2",
-      [username, password],
+      "SELECT * FROM admins WHERE username = $1",
+      [username],
     );
-    if (result.rows.length > 0) {
-      req.session.isAdmin = true;
-      req.session.adminUser = username;
-      req.session.adminRumahSakit = result.rows[0].rumah_sakit;
-      res.redirect("/admin");
-    } else {
-      res.render("admin-login", { error: "Username atau password salah!" });
+    const admin = result.rows[0];
+    if (!admin) {
+      return res.render("admin-login", { error: "Username atau password salah!" });
     }
+
+    const stored = String(admin.password || "");
+    const isHashed =
+      stored.startsWith("$2a$") || stored.startsWith("$2b$") || stored.startsWith("$2y$");
+    const pwOk = isHashed
+      ? bcrypt.compareSync(String(password || ""), stored)
+      : stored === String(password || "");
+
+    if (!pwOk) {
+      return res.render("admin-login", { error: "Username atau password salah!" });
+    }
+
+    // Password masih plaintext -> upgrade ke bcrypt
+    if (!isHashed) {
+      await db.query("UPDATE admins SET password = $1 WHERE id = $2", [
+        bcrypt.hashSync(String(password), 10),
+        admin.id,
+      ]);
+    }
+
+    req.session.regenerate((err) => {
+      req.session.isAdmin = true;
+      req.session.adminUser = admin.username;
+      req.session.adminRumahSakit = admin.rumah_sakit;
+      req.session.csrfToken = crypto.randomBytes(16).toString("hex");
+      if (err) console.error("Error regenerate session login:", err.message);
+      res.redirect("/admin");
+    });
   } catch (err) {
     console.error("Error login:", err.message);
     res.render("admin-login", { error: "Terjadi kesalahan server." });
@@ -439,20 +641,6 @@ app.get("/admin/patient/:patientId", requireAdmin, async (req, res) => {
 });
 
 // =============================================
-// ROUTE: Admin - Hapus Pesan
-// =============================================
-app.post("/admin/message/delete", requireAdmin, async (req, res) => {
-  const { messageId, patientId } = req.body;
-  try {
-    await db.query("DELETE FROM messages WHERE id = $1", [messageId]);
-    res.redirect(`/admin/room/${patientId}`);
-  } catch (err) {
-    console.error("Error hapus pesan:", err.message);
-    res.redirect(`/admin/room/${patientId}`);
-  }
-});
-
-// =============================================
 // ROUTE: Admin - Hapus Total Chat Pasien (pasien + semua pesan)
 // =============================================
 app.post("/admin/patient/delete", requireAdmin, async (req, res) => {
@@ -487,7 +675,7 @@ app.post("/api/room/pin", requireAdmin, async (req, res) => {
     res.json({ ok: true, updated: result.rowCount || 0 });
   } catch (err) {
     console.error("Error sematkan room:", err.message);
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ error: "Terjadi kesalahan server." });
   }
 });
 
@@ -512,7 +700,7 @@ app.post("/api/room/delete", requireAdmin, async (req, res) => {
     res.json({ ok: true, deletedIds });
   } catch (err) {
     console.error("Error hapus total chat room:", err.message);
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ error: "Terjadi kesalahan server." });
   }
 });
 
@@ -521,7 +709,11 @@ app.post("/api/room/delete", requireAdmin, async (req, res) => {
 // =============================================
 app.get("/api/messages/:roomId", async (req, res) => {
   const roomId = req.params.roomId;
-  const viewer = req.query.viewer || "";
+  const id = sessionIdentity(req);
+  if (!id || !identityCanAccessRoom(id, roomId)) {
+    return res.status(403).json({ error: "Akses ditolak." });
+  }
+  const viewer = id.name;
   const after = req.query.after ? parseInt(req.query.after, 10) : null;
   try {
     let query = `SELECT ${MSG_COLS} FROM messages
@@ -541,7 +733,8 @@ app.get("/api/messages/:roomId", async (req, res) => {
     const enriched = await attachReplyInfo(result.rows);
     res.json({ messages: enriched });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    console.error("Error /api/messages:", err.message);
+    res.status(500).json({ error: "Terjadi kesalahan server." });
   }
 });
 
@@ -551,6 +744,11 @@ app.get("/api/messages/:roomId", async (req, res) => {
 app.get("/api/patient-exists/:roomId", async (req, res) => {
   const roomId = req.params.roomId;
   try {
+    // Jangan konfirmasi keberadaan room kepada yang tidak berhak
+    const id = sessionIdentity(req);
+    if (!id || !identityCanAccessRoom(id, roomId)) {
+      return res.json({ exists: false });
+    }
     const lastUnderscore = roomId.lastIndexOf("_");
     const userId =
       lastUnderscore > -1 ? roomId.substring(lastUnderscore + 1) : roomId;
@@ -560,7 +758,8 @@ app.get("/api/patient-exists/:roomId", async (req, res) => {
     ]);
     res.json({ exists: result.rows.length > 0 });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    console.error("Error /api/patient-exists:", err.message);
+    res.status(500).json({ error: "Terjadi kesalahan server." });
   }
 });
 
@@ -569,7 +768,11 @@ app.get("/api/patient-exists/:roomId", async (req, res) => {
 // Data dikirim sebagai base64, tersimpan di DB
 // =============================================
 app.post("/api/upload", async (req, res) => {
-  const { roomId, senderName, mime, name, size, data } = req.body;
+  const { roomId, mime, name, data, replyTo } = req.body || {};
+  const id = sessionIdentity(req);
+  if (!id || !identityCanAccessRoom(id, roomId)) {
+    return res.status(403).json({ error: "Akses ditolak." });
+  }
   try {
     if (!roomId || !name || !data || !/^data:.*;base64,/.test(data)) {
       return res.status(400).json({ error: "Data lampiran tidak lengkap." });
@@ -598,27 +801,49 @@ app.post("/api/upload", async (req, res) => {
       return res.status(413).json({ error: "File terlalu besar." });
     }
 
-    let replyTo = null;
-    if (req.body.replyTo != null && Number.isInteger(Number(req.body.replyTo)) && Number(req.body.replyTo) > 0) {
-      replyTo = Number(req.body.replyTo);
+    // Validasi tipe dari isi byte (magic bytes), bukan dari MIME yang dikirim client
+    const buf = Buffer.from(base64, "base64");
+    if (!buf.length) return res.status(400).json({ error: "Data kosong." });
+    const sniffed = sniffUpload(buf);
+    if (!sniffed) {
+      return res.status(415).json({ error: "Jenis file tidak diizinkan." });
+    }
+    let storedMime;
+    if (sniffed.kind === "media") {
+      storedMime = sniffed.mime;
+    } else {
+      const clientMime = String(mime || "").toLowerCase();
+      storedMime = DOC_MIME_ALLOW.has(clientMime)
+        ? clientMime
+        : "application/octet-stream";
+    }
+
+    let storedReplyTo = null;
+    if (
+      replyTo != null &&
+      Number.isInteger(Number(replyTo)) &&
+      Number(replyTo) > 0
+    ) {
+      storedReplyTo = Number(replyTo);
       const chk = await db.query(
         "SELECT id FROM messages WHERE id = $1 AND room_id = $2",
-        [replyTo, roomId],
+        [storedReplyTo, roomId],
       );
-      if (!chk.rows.length) replyTo = null;
+      if (!chk.rows.length) storedReplyTo = null;
     }
+    const senderName = id.name;
 
     const result = await db.query(
       "INSERT INTO messages (room_id, sender_name, message, message_type, file_name, file_mime, file_data, file_size, reply_to) VALUES ($1, $2, $3, 'file', $4, $5, $6, $7, $8) RETURNING *",
       [
         roomId,
-        senderName || "Anonim",
+        senderName,
         name,
         name,
-        mime || "application/octet-stream",
+        storedMime,
         base64,
-        parseInt(size, 10) || base64.length,
-        replyTo,
+        buf.length,
+        storedReplyTo,
       ],
     );
     const [m] = await attachReplyInfo([result.rows[0]]);
@@ -642,7 +867,7 @@ app.post("/api/upload", async (req, res) => {
     res.json({ ok: true, id: m.id });
   } catch (err) {
     console.error("Gagal simpan lampiran:", err.message);
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ error: "Terjadi kesalahan server." });
   }
 });
 
@@ -651,7 +876,12 @@ app.post("/api/upload", async (req, res) => {
 // Dipakai dari tampilan pasien & admin (via konfirmasi hapus)
 // =============================================
 app.post("/api/message/delete", async (req, res) => {
-  const { roomId, viewerName, messageIds, mode } = req.body || {};
+  const { roomId, messageIds, mode } = req.body || {};
+  const id = sessionIdentity(req);
+  if (!id || !identityCanAccessRoom(id, roomId)) {
+    return res.status(403).json({ error: "Akses ditolak." });
+  }
+  const viewerName = id.name;
   const ids = (Array.isArray(messageIds) ? messageIds : [])
     .map((v) => parseInt(v, 10))
     .filter((v) => Number.isInteger(v) && v > 0);
@@ -710,7 +940,7 @@ app.post("/api/message/delete", async (req, res) => {
     return res.json({ ok: true, deletedIds: ids });
   } catch (err) {
     console.error("Error hapus pesan:", err.message);
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ error: "Terjadi kesalahan server." });
   }
 });
 
@@ -720,20 +950,39 @@ app.post("/api/message/delete", async (req, res) => {
 app.get("/api/file/:id", async (req, res) => {
   try {
     const result = await db.query(
-      "SELECT file_data, file_mime, file_name FROM messages WHERE id = $1 AND message_type = 'file'",
+      "SELECT id, room_id, file_data, file_mime, file_name FROM messages WHERE id = $1 AND message_type = 'file'",
       [req.params.id],
     );
     const row = result.rows[0];
     if (!row || !row.file_data)
       return res.status(404).send("File tidak ditemukan.");
 
+    // Hanya pemilik room / admin RS yang bisa mengambil file
+    const id = sessionIdentity(req);
+    if (!id || !identityCanAccessRoom(id, row.room_id)) {
+      return res.status(403).send("Akses ditolak.");
+    }
+
     const buf = Buffer.from(row.file_data, "base64");
-    const safeName = (row.file_name || "file").replace(/["\\]/g, "");
-    res.set("Content-Type", row.file_mime || "application/octet-stream");
-    res.set("Content-Disposition", `inline; filename="${safeName}"`);
-    res.set("Cache-Control", "public, max-age=86400");
+    const safeName = (row.file_name || "file")
+      .replace(/[\\"';&\r\n]/g, "")
+      .replace(/[\u0000-\u001F\u007F]/g, "");
+    const mime = String(row.file_mime || "application/octet-stream");
+    const isMedia = mime.indexOf("image/") === 0 || mime.indexOf("video/") === 0;
+    res.set("Content-Type", mime);
+    res.set("X-Content-Type-Options", "nosniff");
+    res.set(
+      "Content-Security-Policy",
+      "default-src 'none'; style-src 'unsafe-inline'; img-src 'self'; media-src 'self'",
+    );
+    res.set(
+      "Content-Disposition",
+      `${isMedia ? "inline" : "attachment"}; filename="${safeName}"`,
+    );
+    res.set("Cache-Control", "private, max-age=86400");
     res.send(buf);
   } catch (err) {
+    console.error("Error /api/file:", err.message);
     res.status(500).send("Gagal memuat file.");
   }
 });
@@ -777,7 +1026,8 @@ app.get("/api/rooms", requireAdmin, async (req, res) => {
     }
     res.json({ rooms });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    console.error("Error /api/rooms:", err.message);
+    res.status(500).json({ error: "Terjadi kesalahan server." });
   }
 });
 
@@ -843,6 +1093,24 @@ async function markRoomRead(roomId, adminName) {
 // =============================================
 const onlineUsers = {}; // { roomId: Set of socket ids }
 
+// Identitas dari session (disuntikkan express-session ke handshake socket)
+function socketIdentity(socket) {
+  const s = socket.request && socket.request.session;
+  if (!s) return null;
+  if (s.isAdmin && s.adminUser) {
+    return { type: "admin", name: s.adminUser, rumahSakit: s.adminRumahSakit };
+  }
+  if (s.patientRoomId) {
+    return {
+      type: "patient",
+      roomId: s.patientRoomId,
+      name: s.patientName,
+      rumahSakit: s.patientRumahSakit,
+    };
+  }
+  return null;
+}
+
 io.on("connection", (socket) => {
   console.log("Socket connected:", socket.id);
 
@@ -850,15 +1118,22 @@ io.on("connection", (socket) => {
   // Dari tampilan admin, payload berupa { roomId, adminName } untuk
   // menandai admin tersebut sedang membaca room (reset unread).
   socket.on("join-room", (payload) => {
+    const id = socketIdentity(socket);
+    if (!id) return;
+
     const roomId =
       payload && typeof payload === "object" ? payload.roomId : payload;
-    const adminName =
-      payload && typeof payload === "object" ? payload.adminName : null;
     if (!roomId) return;
+
+    if (id.type === "patient") {
+      if (roomId !== id.roomId) return;
+    } else {
+      if (roomHospital(roomId) !== id.rumahSakit) return;
+    }
 
     socket.join(roomId);
     socket.roomId = roomId;
-    socket.adminName = adminName || null;
+    socket.adminName = id.type === "admin" ? id.name : null;
 
     if (!onlineUsers[roomId]) onlineUsers[roomId] = new Set();
     onlineUsers[roomId].add(socket.id);
@@ -868,25 +1143,44 @@ io.on("connection", (socket) => {
     console.log(`Socket ${socket.id} joined room ${roomId}`);
 
     // Admin yang membuka room: tanda sedang membaca + reset unread
-    if (adminName) {
+    if (id.type === "admin") {
       if (!onlineAdmins[roomId]) onlineAdmins[roomId] = new Set();
-      onlineAdmins[roomId].add(adminName);
-      socket.join(ADMIN_CHAN(roomHospital(roomId)));
-      markRoomRead(roomId, adminName);
+      onlineAdmins[roomId].add(id.name);
+      socket.join(ADMIN_CHAN(id.rumahSakit));
+      markRoomRead(roomId, id.name);
     }
   });
 
   // Halaman daftar room admin: subscribe ke channel badge unread
-  socket.on("join-admin-badges", (rumahSakit) => {
-    if (rumahSakit) socket.join(ADMIN_CHAN(String(rumahSakit)));
+  socket.on("join-admin-badges", () => {
+    const id = socketIdentity(socket);
+    if (!id || id.type !== "admin") return;
+    socket.join(ADMIN_CHAN(id.rumahSakit));
   });
 
   // Kirim pesan
   socket.on("message", async (data) => {
-    const { roomId, senderName, message } = data;
+    const id = socketIdentity(socket);
+    if (!id) return;
+
+    const { roomId, message } = data || {};
     if (!roomId || !message) return;
+    if (!identityCanAccessRoom(id, roomId)) return;
 
     try {
+      if (id.type === "patient") {
+        // Pastikan pasien masih ada (tidak dihapus admin)
+        const lastUnderscore = roomId.lastIndexOf("_");
+        const userId =
+          lastUnderscore > -1 ? roomId.substring(lastUnderscore + 1) : roomId;
+        if (!/^\d+$/.test(userId)) return;
+        const patientChk = await db.query(
+          "SELECT id FROM patients WHERE id = $1",
+          [userId],
+        );
+        if (!patientChk.rows.length) return;
+      }
+
       let replyTo = null;
       if (data.replyTo != null && Number.isInteger(Number(data.replyTo)) && Number(data.replyTo) > 0) {
         replyTo = Number(data.replyTo);
@@ -899,7 +1193,7 @@ io.on("connection", (socket) => {
 
       const result = await db.query(
         "INSERT INTO messages (room_id, sender_name, message, reply_to) VALUES ($1, $2, $3, $4) RETURNING id, room_id, sender_name, message, message_type, file_name, file_mime, file_size, created_at, reply_to",
-        [roomId, senderName || "Anonim", message, replyTo],
+        [roomId, id.name, message, replyTo],
       );
       const [savedMsg] = await attachReplyInfo([result.rows[0]]);
 

@@ -44,6 +44,10 @@ CREATE TABLE IF NOT EXISTS admins (
 -- ALTER TABLE admins ADD COLUMN IF NOT EXISTS rumah_sakit TEXT NOT NULL DEFAULT '';
 
 -- 5. Insert 6 admin rumah sakit
+-- CATATAN KEAMANAN: password pada seed ini PLAINTEXT. Saat server pertama kali
+-- dijalankan (server.js), semua password plaintext otomatis di-hash ke bcrypt.
+-- Setelah ter-hash, hapus/uncomment baris ini agar password default tidak
+-- di-reseed berulang.
 INSERT INTO admins (username, password, rumah_sakit) VALUES
   ('rsudsunan', 'rsudsunan123', 'RSUD Sunan Kalijaga'),
   ('rsinahdlatul', 'rsinahdlatul123', 'RSI Nahdlatul Ulama'),
