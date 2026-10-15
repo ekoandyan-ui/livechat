@@ -6,10 +6,14 @@ const session = require("express-session");
 const bcrypt = require("bcryptjs");
 const crypto = require("crypto");
 const rateLimit = require("express-rate-limit");
+const { ipKeyGenerator } = require("express-rate-limit");
 const helmet = require("helmet");
 const { RedisStore: SessionRedisStore } = require("connect-redis");
 const { RedisStore: LimiterRedisStore } = require("rate-limit-redis");
 const { createClient } = require("redis");
+const fs = require("fs");
+const path = require("path");
+const mailer = require("./mailer");
 
 const app = express();
 const http = require("http");
@@ -291,9 +295,10 @@ function sniffUpload(buf) {
 // UPGRADE PASSWORD ADMIN (plaintext -> bcrypt) saat start
 // =============================================
 async function upgradePlaintextPasswords() {
-  const res = await db.query("SELECT id, password FROM admins");
+  const res = await db.query("SELECT id, password FROM admins WHERE password IS NOT NULL");
   for (const row of res.rows) {
     const pw = String(row.password || "");
+    if (!pw) continue;
     if (pw.startsWith("$2a$") || pw.startsWith("$2b$") || pw.startsWith("$2y$")) {
       continue;
     }
@@ -407,11 +412,136 @@ const RUMAH_SAKIT_LIST = [
 ];
 
 // =============================================
-// MIDDLEWARE: Cek login admin
+// KEAMANAN ADMIN: kebijakan password & token sekali pakai
 // =============================================
-function requireAdmin(req, res, next) {
-  if (req.session && req.session.isAdmin) return next();
-  res.redirect("/admin/login");
+const ACTIVATION_TTL_MS = 30 * 60 * 1000; // 30 menit
+const RESET_TTL_MS = 30 * 60 * 1000; // 30 menit
+const BCRYPT_ROUNDS = 12;
+
+const COMMON_PASSWORDS = new Set([
+  "password",
+  "password123",
+  "password1234",
+  "123456789012",
+  "qwerty123456",
+  "qwertyuiop12",
+  "admin1234567",
+  "iloveyou1234",
+  "letmein12345",
+  "welcome12345",
+  "p@ssw0rd1234",
+]);
+try {
+  const extraPath = path.join(__dirname, "database", "common-passwords.txt");
+  if (fs.existsSync(extraPath)) {
+    fs.readFileSync(extraPath, "utf8")
+      .split(/\r?\n/)
+      .forEach((w) => {
+        const s = w.trim().toLowerCase();
+        if (s) COMMON_PASSWORDS.add(s);
+      });
+  }
+} catch (e) {
+  /* abaikan bila file blocklist tidak ada */
+}
+
+function validatePasswordPolicy(pw, { email, username } = {}) {
+  if (typeof pw !== "string" || pw.length === 0) return "Password wajib diisi.";
+  const chars = [...pw].length;
+  if (chars < 12) return "Password minimal 12 karakter.";
+  if (pw.length > 200) return "Password maksimal 200 karakter.";
+  const low = pw.toLowerCase();
+  if (COMMON_PASSWORDS.has(low)) return "Password terlalu umum, gunakan yang lain.";
+  if (email && low === String(email).toLowerCase())
+    return "Password tidak boleh sama dengan email.";
+  if (username && low === String(username).toLowerCase())
+    return "Password tidak boleh sama dengan username.";
+  if (/^(.)\1+$/.test(pw)) return "Password terlalu lemah (karakter berulang).";
+  if (/^(0123456789|1234567890|abcdefghijkl|123123123123)/.test(low))
+    return "Password terlalu mudah ditebak.";
+  return null;
+}
+
+function hashToken(raw) {
+  return crypto.createHash("sha256").update(String(raw)).digest("hex");
+}
+
+// Terbitkan token baru (mentah dikembalikan; DB hanya menyimpan hash).
+async function issueToken(adminId, purpose, ttlMs) {
+  const raw = crypto.randomBytes(32).toString("hex");
+  const hash = hashToken(raw);
+  const expiresAt = new Date(Date.now() + ttlMs);
+  // Batalkan token lama yang belum terpakai untuk tujuan yang sama.
+  await db.query(
+    "UPDATE admin_tokens SET used_at = NOW() WHERE admin_id = $1 AND purpose = $2 AND used_at IS NULL",
+    [adminId, purpose],
+  );
+  await db.query(
+    "INSERT INTO admin_tokens (admin_id, purpose, token_hash, expires_at) VALUES ($1,$2,$3,$4)",
+    [adminId, purpose, hash, expiresAt],
+  );
+  return raw;
+}
+
+async function findValidToken(raw, purpose) {
+  if (!raw || typeof raw !== "string" || raw.length < 32) return null;
+  const r = await db.query(
+    `SELECT * FROM admin_tokens
+      WHERE token_hash = $1 AND purpose = $2 AND used_at IS NULL AND expires_at > NOW()`,
+    [hashToken(raw), purpose],
+  );
+  return r.rows[0] || null;
+}
+
+// Tandai token terpakai secara atomik; true hanya bagi pemanggil pertama.
+async function consumeToken(id) {
+  const r = await db.query(
+    "UPDATE admin_tokens SET used_at = NOW() WHERE id = $1 AND used_at IS NULL RETURNING id",
+    [id],
+  );
+  return r.rows.length === 1;
+}
+
+async function getAdminById(id) {
+  const r = await db.query("SELECT * FROM admins WHERE id = $1", [id]);
+  return r.rows[0] || null;
+}
+
+// Halaman berisi token: jangan di-cache & jangan bocorkan referrer.
+function noStore(req, res, next) {
+  res.set("Cache-Control", "no-store, no-cache, must-revalidate, private");
+  res.set("Pragma", "no-cache");
+  res.set("Expires", "0");
+  res.set("Referrer-Policy", "no-referrer");
+  next();
+}
+
+// =============================================
+// MIDDLEWARE: Cek login admin (validasi sesi terkini)
+// =============================================
+async function requireAdmin(req, res, next) {
+  if (!req.session || !req.session.isAdmin || !req.session.adminId) {
+    return res.redirect("/admin/login");
+  }
+  try {
+    const r = await db.query(
+      "SELECT is_active, session_version FROM admins WHERE id = $1",
+      [req.session.adminId],
+    );
+    const row = r.rows[0];
+    // Akun nonaktif / versi sesi berubah (password diubah) -> cabut sesi.
+    if (
+      !row ||
+      !row.is_active ||
+      row.session_version !== req.session.adminSessionVersion
+    ) {
+      return req.session.destroy(() => res.redirect("/admin/login"));
+    }
+  } catch (err) {
+    console.error("Error requireAdmin:", err.message);
+    return res.redirect("/admin/login");
+  }
+  next();
 }
 
 // =============================================
@@ -534,7 +664,12 @@ app.get("/chat/:roomId", async (req, res) => {
 // ROUTE: Admin - Login
 // =============================================
 app.get("/admin/login", (req, res) => {
-  res.render("admin-login", { error: null });
+  let info = null;
+  if (req.query.activated === "1")
+    info = "Akun berhasil diaktivasi. Silakan login dengan email dan password baru Anda.";
+  else if (req.query.reset === "1")
+    info = "Password berhasil direset. Silakan login kembali.";
+  res.render("admin-login", { error: null, info });
 });
 
 const loginLimiter = rateLimit({
@@ -546,50 +681,372 @@ const loginLimiter = rateLimit({
   ...makeStoreOpts(),
 });
 
-app.post("/admin/login", loginLimiter, async (req, res) => {
-  const { username, password } = req.body;
+// Limiter per-akun (berdasarkan email) selain limiter per-IP di atas.
+const loginAccountLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  limit: 10,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: "Terlalu banyak percobaan login. Coba lagi nanti." },
+  keyGenerator: (req) => {
+    const email = String((req.body && req.body.email) || "").trim().toLowerCase();
+    return "acct:" + (email || ipKeyGenerator(req.ip));
+  },
+  ...makeStoreOpts(),
+});
+
+// Jeda progresif pada login gagal (per akun/IP) untuk memperlambat brute-force.
+const loginFailures = new Map(); // key -> { count, at }
+function loginFailDelay(key) {
+  const rec = loginFailures.get(key);
+  if (!rec) return 0;
+  if (Date.now() - rec.at > 15 * 60 * 1000) {
+    loginFailures.delete(key);
+    return 0;
+  }
+  return Math.min(rec.count * 300, 3000);
+}
+function noteLoginFailure(key) {
+  const rec = loginFailures.get(key) || { count: 0, at: 0 };
+  rec.count += 1;
+  rec.at = Date.now();
+  loginFailures.set(key, rec);
+}
+const GENERIC_LOGIN_ERROR = "Email atau password salah!";
+
+app.post("/admin/login", loginLimiter, loginAccountLimiter, async (req, res) => {
+  const email = String((req.body && req.body.email) || "").trim().toLowerCase();
+  const password = String((req.body && req.body.password) || "");
+  const failKey = email || req.ip || "";
+
+  // Jeda progresif sebelum memproses (menghambat percobaan beruntun).
+  const wait = loginFailDelay(failKey);
+  if (wait > 0) await new Promise((r) => setTimeout(r, wait));
+
+  if (!email || !password) {
+    noteLoginFailure(failKey);
+    return res.status(200).render("admin-login", { error: GENERIC_LOGIN_ERROR });
+  }
+
   try {
     const result = await db.query(
-      "SELECT * FROM admins WHERE username = $1",
-      [username],
+      "SELECT * FROM admins WHERE LOWER(email) = $1",
+      [email],
     );
     const admin = result.rows[0];
-    if (!admin) {
-      return res.render("admin-login", { error: "Username atau password salah!" });
+    // Akun tak ada / belum aktivasi (is_active=false) / belum punya password
+    // -> semua diberi pesan generik yang sama (anti-enumerasi).
+    if (!admin || !admin.is_active || !admin.password) {
+      noteLoginFailure(failKey);
+      return res.status(200).render("admin-login", { error: GENERIC_LOGIN_ERROR });
     }
 
     const stored = String(admin.password || "");
     const isHashed =
       stored.startsWith("$2a$") || stored.startsWith("$2b$") || stored.startsWith("$2y$");
-    const pwOk = isHashed
-      ? bcrypt.compareSync(String(password || ""), stored)
-      : stored === String(password || "");
-
-    if (!pwOk) {
-      return res.render("admin-login", { error: "Username atau password salah!" });
-    }
-
-    // Password masih plaintext -> upgrade ke bcrypt
     if (!isHashed) {
-      await db.query("UPDATE admins SET password = $1 WHERE id = $2", [
-        bcrypt.hashSync(String(password), 10),
-        admin.id,
-      ]);
+      // Tidak menerima password plaintext di jalur login.
+      console.warn(`Admin ${admin.username} punya password non-hash; login ditolak.`);
+      noteLoginFailure(failKey);
+      return res.status(200).render("admin-login", { error: GENERIC_LOGIN_ERROR });
     }
 
+    const pwOk = bcrypt.compareSync(password, stored);
+    if (!pwOk) {
+      noteLoginFailure(failKey);
+      return res.status(200).render("admin-login", { error: GENERIC_LOGIN_ERROR });
+    }
+
+    // Login sukses -> regenerasi sesi. Jika gagal, BATALKAN login
+    // (jangan memberikan hak admin).
     req.session.regenerate((err) => {
+      if (err) {
+        console.error("Error regenerate session login:", err.message);
+        return res
+          .status(500)
+          .render("admin-login", { error: "Gagal memulai sesi. Coba lagi." });
+      }
+      loginFailures.delete(failKey);
       req.session.isAdmin = true;
+      req.session.adminId = admin.id;
       req.session.adminUser = admin.username;
       req.session.adminRumahSakit = admin.rumah_sakit;
+      req.session.adminSessionVersion = admin.session_version;
       req.session.csrfToken = crypto.randomBytes(16).toString("hex");
-      if (err) console.error("Error regenerate session login:", err.message);
       res.redirect("/admin");
     });
   } catch (err) {
     console.error("Error login:", err.message);
-    res.render("admin-login", { error: "Terjadi kesalahan server." });
+    res.status(500).render("admin-login", { error: "Terjadi kesalahan server." });
   }
 });
+
+// =============================================
+// ROUTE: Aktivasi admin, ganti password, lupa/reset password (Fase 3-4)
+// =============================================
+const activateLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  limit: 10,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: "Terlalu banyak percobaan. Coba lagi nanti." },
+  ...makeStoreOpts(),
+});
+const forgotLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  limit: 5,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: "Terlalu banyak permintaan. Coba lagi nanti." },
+  ...makeStoreOpts(),
+});
+const resetLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  limit: 10,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: "Terlalu banyak percobaan. Coba lagi nanti." },
+  ...makeStoreOpts(),
+});
+const changePwLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  limit: 10,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: "Terlalu banyak percobaan. Coba lagi nanti." },
+  ...makeStoreOpts(),
+});
+
+const INVALID_LINK = {
+  title: "Tautan tidak valid",
+  message:
+    "Tautan ini tidak valid, sudah dipakai, atau sudah kedaluwarsa. " +
+    "Minta tautan baru kepada penanggung jawab akun.",
+  loginHref: "/admin/login",
+  loginText: "Ke Halaman Login",
+};
+
+// ---- Aktivasi (set password pertama kali) ----
+app.get("/admin/activate", noStore, async (req, res) => {
+  const token = String(req.query.token || "");
+  try {
+    const row = await findValidToken(token, "activation");
+    const admin = row ? await getAdminById(row.admin_id) : null;
+    if (!admin) return res.status(400).render("admin-message", INVALID_LINK);
+    res.render("admin-activate", {
+      error: null,
+      token,
+      email: admin.email,
+      rumahSakit: admin.rumah_sakit,
+    });
+  } catch (err) {
+    console.error("Error activate GET:", err.message);
+    res.status(500).render("admin-message", {
+      title: "Terjadi kesalahan",
+      message: "Coba lagi nanti.",
+      loginHref: "/admin/login",
+      loginText: "Ke Halaman Login",
+    });
+  }
+});
+
+app.post("/admin/activate", activateLimiter, noStore, async (req, res) => {
+  const token = String((req.body && req.body.token) || "");
+  const pw = String((req.body && req.body.password) || "");
+  const pw2 = String((req.body && req.body.password2) || "");
+  try {
+    const row = await findValidToken(token, "activation");
+    const admin = row ? await getAdminById(row.admin_id) : null;
+    if (!admin) return res.status(400).render("admin-message", INVALID_LINK);
+
+    const renderForm = (error) =>
+      res.status(200).render("admin-activate", {
+        error,
+        token,
+        email: admin.email,
+        rumahSakit: admin.rumah_sakit,
+      });
+
+    if (pw !== pw2) return renderForm("Konfirmasi password tidak sama.");
+    const perr = validatePasswordPolicy(pw, {
+      email: admin.email,
+      username: admin.username,
+    });
+    if (perr) return renderForm(perr);
+
+    if (!(await consumeToken(row.id)))
+      return res.status(400).render("admin-message", INVALID_LINK);
+
+    const hash = await bcrypt.hash(pw, BCRYPT_ROUNDS);
+    await db.query(
+      `UPDATE admins
+          SET password = $1, is_active = TRUE, password_changed_at = NOW(),
+              session_version = session_version + 1
+        WHERE id = $2`,
+      [hash, admin.id],
+    );
+    await db.query(
+      "UPDATE admin_tokens SET used_at = NOW() WHERE admin_id = $1 AND used_at IS NULL",
+      [admin.id],
+    );
+    res.redirect("/admin/login?activated=1");
+  } catch (err) {
+    console.error("Error activate POST:", err.message);
+    res.status(500).render("admin-message", {
+      title: "Terjadi kesalahan",
+      message: "Coba lagi nanti.",
+      loginHref: "/admin/login",
+      loginText: "Ke Halaman Login",
+    });
+  }
+});
+
+// ---- Lupa password (respons selalu sama -> anti-enumerasi) ----
+const FORGOT_INFO = "Jika alamat terdaftar, instruksi pemulihan akan dikirim.";
+
+app.get("/admin/forgot-password", noStore, (req, res) => {
+  res.render("admin-forgot", { info: null });
+});
+
+app.post("/admin/forgot-password", forgotLimiter, noStore, async (req, res) => {
+  const email = String((req.body && req.body.email) || "").trim().toLowerCase();
+  try {
+    if (email) {
+      const r = await db.query(
+        "SELECT * FROM admins WHERE LOWER(email) = $1 AND is_active = TRUE AND password IS NOT NULL",
+        [email],
+      );
+      const admin = r.rows[0];
+      if (admin) {
+        const token = await issueToken(admin.id, "reset", RESET_TTL_MS);
+        const out = await mailer.sendResetEmail(admin.email, token);
+        if (out.skipped && !IS_PRODUCTION)
+          console.log(`[DEV] Tautan reset untuk ${admin.email}: ${out.link}`);
+      }
+    }
+  } catch (err) {
+    console.error("Error forgot-password:", err.message);
+  }
+  res.status(200).render("admin-forgot", { info: FORGOT_INFO });
+});
+
+app.get("/admin/reset-password", noStore, async (req, res) => {
+  const token = String(req.query.token || "");
+  try {
+    const row = await findValidToken(token, "reset");
+    if (!row) return res.status(400).render("admin-message", INVALID_LINK);
+    res.render("admin-reset", { error: null, token });
+  } catch (err) {
+    console.error("Error reset GET:", err.message);
+    res.status(500).render("admin-message", {
+      title: "Terjadi kesalahan",
+      message: "Coba lagi nanti.",
+      loginHref: "/admin/login",
+      loginText: "Ke Halaman Login",
+    });
+  }
+});
+
+app.post("/admin/reset-password", resetLimiter, noStore, async (req, res) => {
+  const token = String((req.body && req.body.token) || "");
+  const pw = String((req.body && req.body.password) || "");
+  const pw2 = String((req.body && req.body.password2) || "");
+  try {
+    const row = await findValidToken(token, "reset");
+    const admin = row ? await getAdminById(row.admin_id) : null;
+    if (!admin) return res.status(400).render("admin-message", INVALID_LINK);
+
+    const renderForm = (error) =>
+      res.status(200).render("admin-reset", { error, token });
+
+    if (pw !== pw2) return renderForm("Konfirmasi password tidak sama.");
+    const perr = validatePasswordPolicy(pw, {
+      email: admin.email,
+      username: admin.username,
+    });
+    if (perr) return renderForm(perr);
+
+    if (!(await consumeToken(row.id)))
+      return res.status(400).render("admin-message", INVALID_LINK);
+
+    const hash = await bcrypt.hash(pw, BCRYPT_ROUNDS);
+    await db.query(
+      `UPDATE admins
+          SET password = $1, password_changed_at = NOW(),
+              session_version = session_version + 1
+        WHERE id = $2`,
+      [hash, admin.id],
+    );
+    await db.query(
+      "UPDATE admin_tokens SET used_at = NOW() WHERE admin_id = $1 AND used_at IS NULL",
+      [admin.id],
+    );
+    mailer.sendPasswordChangedEmail(admin.email).catch(() => {});
+    res.redirect("/admin/login?reset=1");
+  } catch (err) {
+    console.error("Error reset POST:", err.message);
+    res.status(500).render("admin-message", {
+      title: "Terjadi kesalahan",
+      message: "Coba lagi nanti.",
+      loginHref: "/admin/login",
+      loginText: "Ke Halaman Login",
+    });
+  }
+});
+
+// ---- Ganti password (butuh login) ----
+app.get("/admin/change-password", requireAdmin, noStore, (req, res) => {
+  res.render("admin-change-password", { error: null, done: false });
+});
+
+app.post(
+  "/admin/change-password",
+  requireAdmin,
+  changePwLimiter,
+  noStore,
+  async (req, res) => {
+    const current = String((req.body && req.body.current) || "");
+    const pw = String((req.body && req.body.password) || "");
+    const pw2 = String((req.body && req.body.password2) || "");
+    try {
+      const admin = await getAdminById(req.session.adminId);
+      if (!admin || !admin.is_active || !admin.password) {
+        return res.redirect("/admin/login");
+      }
+      const renderForm = (error) =>
+        res.status(200).render("admin-change-password", { error, done: false });
+
+      if (!bcrypt.compareSync(current, String(admin.password)))
+        return renderForm("Password saat ini salah.");
+      if (pw !== pw2) return renderForm("Konfirmasi password tidak sama.");
+      const perr = validatePasswordPolicy(pw, {
+        email: admin.email,
+        username: admin.username,
+      });
+      if (perr) return renderForm(perr);
+      if (bcrypt.compareSync(pw, String(admin.password)))
+        return renderForm("Password baru tidak boleh sama dengan yang lama.");
+
+      const hash = await bcrypt.hash(pw, BCRYPT_ROUNDS);
+      const upd = await db.query(
+        `UPDATE admins
+            SET password = $1, password_changed_at = NOW(),
+                session_version = session_version + 1
+          WHERE id = $2 RETURNING session_version`,
+        [hash, admin.id],
+      );
+      // Sesi ini tetap hidup; sesi lain otomatis dicabut (versi berbeda).
+      req.session.adminSessionVersion = upd.rows[0].session_version;
+      mailer.sendPasswordChangedEmail(admin.email).catch(() => {});
+      res.status(200).render("admin-change-password", { error: null, done: true });
+    } catch (err) {
+      console.error("Error change-password:", err.message);
+      res
+        .status(500)
+        .render("admin-change-password", { error: "Terjadi kesalahan server.", done: false });
+    }
+  },
+);
 
 app.get("/admin/logout", (req, res) => {
   req.session.destroy();

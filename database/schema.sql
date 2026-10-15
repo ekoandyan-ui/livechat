@@ -32,9 +32,12 @@ CREATE INDEX IF NOT EXISTS idx_messages_room_id ON messages(room_id);
 CREATE INDEX IF NOT EXISTS idx_messages_created_at ON messages(created_at);
 
 -- 4. Tabel admin untuk login admin rumah sakit
+-- username dipertahankan sebagai identifier internal (label & data historis),
+-- tetapi LOGIN memakai kolom email.
 CREATE TABLE IF NOT EXISTS admins (
   id SERIAL PRIMARY KEY,
   username TEXT UNIQUE NOT NULL,
+  email TEXT,
   password TEXT NOT NULL,
   rumah_sakit TEXT NOT NULL,
   created_at TIMESTAMPTZ DEFAULT NOW()
@@ -43,19 +46,18 @@ CREATE TABLE IF NOT EXISTS admins (
 -- Jika tabel sudah ada tanpa kolom rumah_sakit, jalankan ini:
 -- ALTER TABLE admins ADD COLUMN IF NOT EXISTS rumah_sakit TEXT NOT NULL DEFAULT '';
 
--- 5. Insert 6 admin rumah sakit
--- CATATAN KEAMANAN: password pada seed ini PLAINTEXT. Saat server pertama kali
--- dijalankan (server.js), semua password plaintext otomatis di-hash ke bcrypt.
--- Setelah ter-hash, hapus/uncomment baris ini agar password default tidak
--- di-reseed berulang.
-INSERT INTO admins (username, password, rumah_sakit) VALUES
-  ('rsudsunan', 'rsudsunan123', 'RSUD Sunan Kalijaga'),
-  ('rsinahdlatul', 'rsinahdlatul123', 'RSI Nahdlatul Ulama'),
-  ('rspelita', 'rspelita123', 'RS Pelita Anugerah'),
-  ('rsudsfatah', 'rsudsfatah123', 'RSUD Sultan Fatah'),
-  ('rshjfatimah', 'rshjfatimah123', 'RS Hj. Fatimah Sulhan'),
-  ('charliehospital', 'charlie123', 'Charlie Hospital')
-ON CONFLICT (username) DO NOTHING;
+-- 5. Kolom email + keunikan case-insensitive (migrasi bertahap).
+--    Alur: tambah kolom (nullable) -> isi & verifikasi email ->
+--    buat unique index. Lihat database/migrate-admin-emails.js
+ALTER TABLE admins ADD COLUMN IF NOT EXISTS email TEXT;
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_admins_email_lower
+  ON admins (LOWER(email)) WHERE email IS NOT NULL;
+
+-- CATATAN KEAMANAN:
+-- Tidak ada seed password default. Akun admin di-provisioning secara terpisah
+-- dan password disimpan hanya sebagai hash. Jangan pernah menulis password,
+-- token aktivasi, atau token reset ke Git, log, tiket, atau dokumen bersama.
 
 -- 6. Index untuk isolasi rumah sakit
 CREATE INDEX IF NOT EXISTS idx_admins_rumah_sakit ON admins(rumah_sakit);
@@ -99,3 +101,25 @@ CREATE TABLE IF NOT EXISTS room_unread (
   updated_at TIMESTAMPTZ DEFAULT NOW(),
   PRIMARY KEY (admin_name, room_id)
 );
+
+-- 12. Aktivasi & manajemen password admin (Fase 3-4)
+-- is_active        : akun hanya bisa login setelah aktivasi selesai (TRUE).
+-- session_version  : dinaikkan setiap perubahan password -> semua sesi lama dicabut.
+-- password         : dibuat NULLABLE agar akun "pending" belum punya password.
+ALTER TABLE admins ADD COLUMN IF NOT EXISTS is_active BOOLEAN NOT NULL DEFAULT TRUE;
+ALTER TABLE admins ADD COLUMN IF NOT EXISTS session_version INTEGER NOT NULL DEFAULT 1;
+ALTER TABLE admins ADD COLUMN IF NOT EXISTS password_changed_at TIMESTAMPTZ;
+ALTER TABLE admins ALTER COLUMN password DROP NOT NULL;
+
+-- Token aktivasi / reset password (disimpan sebagai HASH, sekali pakai).
+CREATE TABLE IF NOT EXISTS admin_tokens (
+  id SERIAL PRIMARY KEY,
+  admin_id INTEGER NOT NULL REFERENCES admins(id) ON DELETE CASCADE,
+  purpose TEXT NOT NULL,               -- 'activation' | 'reset'
+  token_hash TEXT NOT NULL UNIQUE,      -- sha256(token) hex
+  expires_at TIMESTAMPTZ NOT NULL,
+  used_at TIMESTAMPTZ,
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_admin_tokens_admin ON admin_tokens(admin_id, purpose);
+CREATE INDEX IF NOT EXISTS idx_admin_tokens_hash ON admin_tokens(token_hash);
