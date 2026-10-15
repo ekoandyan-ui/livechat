@@ -466,6 +466,23 @@ function hashToken(raw) {
   return crypto.createHash("sha256").update(String(raw)).digest("hex");
 }
 
+// Buat password acak kuat (dijamin memuat huruf besar/kecil, angka, simbol).
+function generateStrongPassword(len = 16) {
+  const upper = "ABCDEFGHJKLMNPQRSTUVWXYZ";
+  const lower = "abcdefghijkmnopqrstuvwxyz";
+  const digits = "23456789";
+  const symbols = "!@#$%^*-_=+";
+  const all = upper + lower + digits + symbols;
+  const pick = (set) => set[crypto.randomInt(set.length)];
+  const chars = [pick(upper), pick(lower), pick(digits), pick(symbols)];
+  while (chars.length < len) chars.push(pick(all));
+  for (let i = chars.length - 1; i > 0; i--) {
+    const j = crypto.randomInt(i + 1);
+    [chars[i], chars[j]] = [chars[j], chars[i]];
+  }
+  return chars.join("");
+}
+
 // Terbitkan token baru (mentah dikembalikan; DB hanya menyimpan hash).
 async function issueToken(adminId, purpose, ttlMs) {
   const raw = crypto.randomBytes(32).toString("hex");
@@ -901,8 +918,9 @@ app.post("/admin/activate", activateLimiter, noStore, async (req, res) => {
   }
 });
 
-// ---- Lupa password (respons selalu sama -> anti-enumerasi) ----
-const FORGOT_INFO = "Jika alamat terdaftar, instruksi pemulihan akan dikirim.";
+// ---- Lupa password: kirim PASSWORD BARU ke email terdaftar ----
+// (respons selalu sama -> anti-enumerasi)
+const FORGOT_INFO = "Jika alamat terdaftar, password baru akan dikirim ke email tersebut.";
 
 app.get("/admin/forgot-password", noStore, (req, res) => {
   res.render("admin-forgot", { info: null });
@@ -913,15 +931,24 @@ app.post("/admin/forgot-password", forgotLimiter, noStore, async (req, res) => {
   try {
     if (email) {
       const r = await db.query(
-        "SELECT * FROM admins WHERE LOWER(email) = $1 AND is_active = TRUE AND password IS NOT NULL",
+        "SELECT * FROM admins WHERE LOWER(email) = $1 AND is_active = TRUE",
         [email],
       );
       const admin = r.rows[0];
       if (admin) {
-        const token = await issueToken(admin.id, "reset", RESET_TTL_MS);
-        const out = await mailer.sendResetEmail(admin.email, token);
+        const newPassword = generateStrongPassword(16);
+        const hash = await bcrypt.hash(newPassword, BCRYPT_ROUNDS);
+        await db.query(
+          `UPDATE admins
+              SET password = $1, password_changed_at = NOW(),
+                  session_version = session_version + 1
+            WHERE id = $2`,
+          [hash, admin.id],
+        );
+        const out = await mailer.sendNewPasswordEmail(admin.email, newPassword);
         if (out.skipped && !IS_PRODUCTION)
-          console.log(`[DEV] Tautan reset untuk ${admin.email}: ${out.link}`);
+          console.log(`[DEV] Password baru untuk ${admin.email}: ${newPassword}`);
+        if (out.error) console.error(`Gagal kirim password baru ke ${admin.email}:`, out.error);
       }
     }
   } catch (err) {

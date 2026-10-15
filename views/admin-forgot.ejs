@@ -1,6 +1,6 @@
 <%- include('partials/admin-auth-head', { title: 'Lupa Password' }) %>
     <h2>LUPA PASSWORD</h2>
-    <p class="subtitle">Kirim tautan reset ke email terdaftar</p>
+    <p class="subtitle">Password baru akan dikirim ke email terdaftar</p>
     <% if (info) { %>
       <div class="alert alert-info"><%= info %></div>
     <% } %>
@@ -10,7 +10,7 @@
         <label class="form-label">Email</label>
         <input type="email" name="email" class="form-control" placeholder="Masukkan email admin" autocomplete="email" required autofocus />
       </div>
-      <button type="submit" class="btn btn-login">KIRIM TAUTAN</button>
+      <button type="submit" class="btn btn-login">KIRIM PASSWORD BARU</button>
     </form>
     <a class="back-link" href="/admin/login">Kembali ke Login</a>
 <%- include('partials/admin-auth-foot') %>

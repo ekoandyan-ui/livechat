@@ -19,20 +19,17 @@ function getBaseUrl() {
 }
 
 function getFromAddress() {
-  return process.env.MAIL_FROM || "no-reply@localhost";
+  return process.env.MAIL_FROM || process.env.SMTP_USER || "no-reply@localhost";
 }
 
 let transporter = null;
-if (process.env.SMTP_HOST) {
+if (process.env.SMTP_HOST && process.env.SMTP_USER && process.env.SMTP_PASS) {
   const port = Number(process.env.SMTP_PORT || 587);
   transporter = nodemailer.createTransport({
     host: process.env.SMTP_HOST,
     port,
     secure: process.env.SMTP_SECURE === "true" || port === 465,
-    auth:
-      process.env.SMTP_USER && process.env.SMTP_PASS
-        ? { user: process.env.SMTP_USER, pass: process.env.SMTP_PASS }
-        : undefined,
+    auth: { user: process.env.SMTP_USER, pass: process.env.SMTP_PASS },
   });
 }
 
@@ -127,6 +124,26 @@ async function sendPasswordChangedEmail(to) {
   return sendMail({ to, subject, text, html });
 }
 
+// Kirim password baru (hasil reset "Lupa Password") ke email terdaftar.
+async function sendNewPasswordEmail(to, password) {
+  const subject = "Password Baru Admin Live Chat";
+  const text =
+    `Permintaan reset password diterima. Sistem telah membuat password baru untuk akun ini.\n\n` +
+    `Password baru: ${password}\n\n` +
+    `Segera login dan ganti password ini melalui menu "Ganti Password".\n` +
+    `Semua sesi lain telah dicabut.\n\n` +
+    `Jika ini bukan Anda, segera hubungi penanggung jawab keamanan aplikasi.`;
+  const html = wrap(
+    "Password Baru Admin",
+    `<p>Permintaan <b>reset password</b> diterima. Sistem telah membuat password baru untuk akun ini.</p>
+     <p>Password baru Anda:</p>
+     <p style="font-size:20px;font-family:monospace;background:#f1f5f9;padding:10px 14px;border-radius:8px;display:inline-block"><b>${password}</b></p>
+     <p>Segera login lalu ganti password ini melalui menu <b>Ganti Password</b>. Semua sesi lain telah dicabut.</p>
+     <p style="font-size:13px;color:#64748b">Jika ini bukan Anda, segera hubungi penanggung jawab keamanan aplikasi.</p>`,
+  );
+  return sendMail({ to, subject, text, html });
+}
+
 module.exports = {
   getBaseUrl,
   mailerConfigured,
@@ -134,4 +151,5 @@ module.exports = {
   sendActivationEmail,
   sendResetEmail,
   sendPasswordChangedEmail,
+  sendNewPasswordEmail,
 };
