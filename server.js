@@ -6,6 +6,10 @@ const session = require("express-session");
 const bcrypt = require("bcryptjs");
 const crypto = require("crypto");
 const rateLimit = require("express-rate-limit");
+const helmet = require("helmet");
+const { RedisStore: SessionRedisStore } = require("connect-redis");
+const { RedisStore: LimiterRedisStore } = require("rate-limit-redis");
+const { createClient } = require("redis");
 
 const app = express();
 const http = require("http");
@@ -24,14 +28,54 @@ if (!SESSION_SECRET) {
   throw new Error("SESSION_SECRET wajib diisi pada environment production.");
 }
 
+app.disable("x-powered-by"); // Kurangi fingerprinting Express
 app.set("trust proxy", 1); // Di belakang reverse-proxy (Vercel, dll.)
-app.use(BodyParser.urlencoded({ extended: true, limit: "50mb" }));
-app.use(BodyParser.json({ limit: "50mb" }));
+
+// Security headers global (Helmet). CSP global dimatikan agar tidak bentrok
+// dengan inline script pada EJS; CSP ketat khusus file tetap di /api/file/:id.
+app.use(
+  helmet({
+    contentSecurityPolicy: false,
+    crossOriginEmbedderPolicy: false,
+  }),
+);
+
+app.use(BodyParser.urlencoded({ extended: true, limit: "20mb" }));
+app.use(BodyParser.json({ limit: "20mb" }));
+
+// =============================================
+// REDIS (session store + rate-limit store, opsional via REDIS_URL)
+// =============================================
+let sessionStore;
+let limiterStore;
+
+if (process.env.REDIS_URL) {
+  const redisClient = createClient({ url: process.env.REDIS_URL });
+  redisClient.on("error", (err) => console.error("Redis error:", err.message));
+  redisClient
+    .connect()
+    .then(() => console.log("Redis terhubung! Session & rate-limit memakai Redis."))
+    .catch((err) => console.error("Gagal koneksi Redis:", err.message));
+
+  sessionStore = new SessionRedisStore({ client: redisClient, prefix: "lc:sess:" });
+  limiterStore = () =>
+    new LimiterRedisStore({
+      sendCommand: (...args) => redisClient.sendCommand(args),
+      prefix: "lc:rl:",
+    });
+} else {
+  console.warn(
+    "[PERINGATAN] REDIS_URL tidak diset -> memakai MemoryStore. " +
+      "Tidak disarankan untuk production / multi-instance.",
+  );
+}
 
 const sessionMiddleware = session({
+  name: "lc_sid", // hindari nama default "connect.sid"
   secret: SESSION_SECRET,
   resave: false,
   saveUninitialized: false,
+  store: sessionStore,
   cookie: {
     httpOnly: true,
     secure: IS_PRODUCTION || process.env.COOKIE_SECURE === "true",
@@ -42,6 +86,47 @@ const sessionMiddleware = session({
 
 app.use(sessionMiddleware);
 io.engine.use(sessionMiddleware);
+
+// =============================================
+// RATE LIMIT (global + endpoint sensitif)
+// =============================================
+function makeStoreOpts() {
+  return limiterStore ? { store: limiterStore() } : {};
+}
+
+// Global: melindungi seluruh endpoint dari flooding / bot / scanner.
+const globalLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  limit: 300,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: "Terlalu banyak permintaan. Coba lagi nanti." },
+  // Socket.IO polling punya kanal sendiri (jangan ikut dibatasi di sini).
+  skip: (req) => req.path.startsWith("/socket.io"),
+  ...makeStoreOpts(),
+});
+
+// Registrasi pasien: batasi ketat anti-spam.
+const registerLimiter = rateLimit({
+  windowMs: 5 * 60 * 1000,
+  limit: 5,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: "Terlalu banyak pendaftaran. Coba lagi beberapa saat." },
+  ...makeStoreOpts(),
+});
+
+// Upload file: batasi agar tidak dipakai abuse/DoS.
+const uploadLimiter = rateLimit({
+  windowMs: 5 * 60 * 1000,
+  limit: 20,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: "Terlalu banyak unggahan. Coba lagi beberapa saat." },
+  ...makeStoreOpts(),
+});
+
+app.use(globalLimiter);
 
 app.set("view engine", "ejs");
 app.set("views", "views");
@@ -330,10 +415,14 @@ function requireAdmin(req, res, next) {
 }
 
 // =============================================
-// ROUTE: Test Database Connection (hanya non-production)
+// ROUTE: Test Database Connection
+// Nonaktif secara default. Hanya aktif bila ALLOW_TEST_DB === "true"
+// dan tidak berjalan di production.
 // =============================================
 app.get("/test-db", async (req, res) => {
-  if (IS_PRODUCTION) return res.status(404).send("Not Found");
+  if (IS_PRODUCTION || process.env.ALLOW_TEST_DB !== "true") {
+    return res.status(404).send("Not Found");
+  }
   try {
     const urlCheck = process.env.DATABASE_URL ? "ADA" : "TIDAK ADA";
     const result = await db.query("SELECT NOW() as waktu");
@@ -368,7 +457,7 @@ app.get("/", (req, res) => {
 // =============================================
 // ROUTE: Tambah Pasien Baru & Langsung Masuk Chat
 // =============================================
-app.post("/tambah", async (req, res) => {
+app.post("/tambah", registerLimiter, async (req, res) => {
   try {
     const { nama, alamat, nomor_wa, rumah_sakit } = req.body;
     if (!rumah_sakit || !RUMAH_SAKIT_LIST.includes(rumah_sakit)) {
@@ -454,6 +543,7 @@ const loginLimiter = rateLimit({
   standardHeaders: true,
   legacyHeaders: false,
   message: { error: "Terlalu banyak percobaan login. Coba lagi nanti." },
+  ...makeStoreOpts(),
 });
 
 app.post("/admin/login", loginLimiter, async (req, res) => {
@@ -767,7 +857,7 @@ app.get("/api/patient-exists/:roomId", async (req, res) => {
 // API: Upload Lampiran (foto / video / dokumen)
 // Data dikirim sebagai base64, tersimpan di DB
 // =============================================
-app.post("/api/upload", async (req, res) => {
+app.post("/api/upload", uploadLimiter, async (req, res) => {
   const { roomId, mime, name, data, replyTo } = req.body || {};
   const id = sessionIdentity(req);
   if (!id || !identityCanAccessRoom(id, roomId)) {
@@ -1114,6 +1204,20 @@ function socketIdentity(socket) {
 io.on("connection", (socket) => {
   console.log("Socket connected:", socket.id);
 
+  // Throttle pengiriman pesan per-socket (anti-spam realtime).
+  // Maks 10 pesan / detik (burst) dan maks 60 pesan / 10 detik (berkelanjutan).
+  let msgBurst = [];
+  let msgSustained = [];
+  function messageAllowed() {
+    const now = Date.now();
+    msgBurst = msgBurst.filter((t) => now - t < 1000);
+    msgSustained = msgSustained.filter((t) => now - t < 10000);
+    if (msgBurst.length >= 10 || msgSustained.length >= 60) return false;
+    msgBurst.push(now);
+    msgSustained.push(now);
+    return true;
+  }
+
   // Join ke room tertentu (roomId sekarang termasuk prefix rumah_sakit)
   // Dari tampilan admin, payload berupa { roomId, adminName } untuk
   // menandai admin tersebut sedang membaca room (reset unread).
@@ -1166,6 +1270,7 @@ io.on("connection", (socket) => {
     const { roomId, message } = data || {};
     if (!roomId || !message) return;
     if (!identityCanAccessRoom(id, roomId)) return;
+    if (!messageAllowed()) return; // throttled: abaikan diam-diam
 
     try {
       if (id.type === "patient") {
