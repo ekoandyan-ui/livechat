@@ -71,9 +71,40 @@
       #sendBtn svg { width: 22px; height: 22px; }
       .no-msg { padding: 40px 15px; font-size: 13px; }
     }
+    .chat-back-dialog {
+      width: min(420px, calc(100% - 32px));
+      margin: auto;
+      padding: 24px;
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      color: var(--text);
+      background: var(--surface);
+      box-shadow: 0 20px 60px rgba(15, 23, 42, 0.24);
+    }
+    .chat-back-dialog::backdrop { background: rgba(15, 23, 42, 0.55); }
+    .chat-back-dialog h2 { margin: 0 0 8px; font-size: 19px; font-weight: 700; }
+    .chat-back-dialog p { margin: 0 0 20px; color: var(--subtle); font-size: 14px; line-height: 1.55; }
+    .chat-back-actions { display: flex; flex-direction: column; gap: 10px; }
+    .chat-back-actions button {
+      width: 100%; min-height: 44px; padding: 10px 14px; border-radius: 10px;
+      font: inherit; font-size: 14px; font-weight: 600; cursor: pointer;
+    }
+    .chat-back-continue { border: 0; background: var(--primary); color: #fff; }
+    .chat-back-continue:hover { background: var(--primary-dark); }
+    .chat-back-new { border: 1px solid var(--border); background: var(--surface); color: var(--text); }
+    .chat-back-new:hover { background: var(--bg); }
+    .chat-back-actions button:focus-visible { outline: 3px solid rgba(14, 165, 233, 0.35); outline-offset: 2px; }
   </style>
 </head>
 <body>
+  <dialog class="chat-back-dialog" id="chatBackDialog" aria-labelledby="chatBackTitle" aria-describedby="chatBackDescription">
+    <h2 id="chatBackTitle">Keluar dari ruang chat?</h2>
+    <p id="chatBackDescription">Percakapan ini tetap tersimpan. Pilih untuk kembali melanjutkan chat atau membuka formulir pasien baru.</p>
+    <div class="chat-back-actions">
+      <button type="button" class="chat-back-continue" id="chatBackContinue">Lanjutkan chat</button>
+      <button type="button" class="chat-back-new" id="chatBackNew">Mulai baru</button>
+    </div>
+  </dialog>
   <div class="chat-header">
     <div>
       <h5><%= rumahSakit %></h5>
@@ -171,6 +202,37 @@
     updateChatLayout();
 
     const SESSION_KEY = 'dinkes_chat_session';
+
+    // Tahan navigasi Back pertama agar pasien memilih melanjutkan atau mulai baru.
+    const chatBackDialog = document.getElementById('chatBackDialog');
+    const chatBackContinue = document.getElementById('chatBackContinue');
+    const chatBackNew = document.getElementById('chatBackNew');
+    const chatPageUrl = window.location.href;
+    function closeChatBackDialog() {
+      if (!chatBackDialog) return;
+      if (typeof chatBackDialog.close === 'function') chatBackDialog.close();
+      else chatBackDialog.removeAttribute('open');
+    }
+    function showChatBackDialog() {
+      if (!chatBackDialog || chatBackDialog.open) return;
+      if (typeof chatBackDialog.showModal === 'function') chatBackDialog.showModal();
+      else chatBackDialog.setAttribute('open', '');
+    }
+    history.pushState({ chatBackGuard: true }, '', chatPageUrl);
+    window.addEventListener('popstate', () => {
+      // Pulihkan URL/riwayat chat setelah tombol Back mem-pop state penjaga.
+      history.pushState({ chatBackGuard: true }, '', chatPageUrl);
+      showChatBackDialog();
+    });
+    chatBackContinue.addEventListener('click', closeChatBackDialog);
+    chatBackDialog.addEventListener('cancel', (event) => {
+      event.preventDefault();
+      closeChatBackDialog();
+    });
+    chatBackNew.addEventListener('click', () => {
+      localStorage.removeItem(SESSION_KEY);
+      window.location.assign('/?startNew=1');
+    });
 
     // Simpan data chat pasien agar tetap tersimpan saat refresh/keluar browser
     function saveSession() {

@@ -25,8 +25,8 @@
     .form-control:focus, .form-select:focus { background: var(--surface); color: var(--text); border-color: var(--primary); box-shadow: 0 0 0 0.25rem rgba(14, 165, 233, 0.25); }
     .form-select option { background: var(--surface); color: var(--text); }
     .form-label { color: var(--text); font-size: 14px; font-weight: 600; margin-bottom: 6px; }
-    .btn-tambah { background: var(--primary); border: none; font-weight: 600; padding: 12px; border-radius: 10px; width: 100%; font-size: 16px; margin-top: 10px; transition: all 0.2s ease-in-out; }
-    .btn-tambah:hover { background: var(--primary-dark); transform: translateY(-1px); }
+    .btn-tambah { background: var(--primary); border: none; color: #fff; font-weight: 600; padding: 12px; border-radius: 10px; width: 100%; font-size: 16px; margin-top: 10px; transition: all 0.2s ease-in-out; }
+    .btn-tambah:hover { background: var(--primary-dark); color: #fff; transform: translateY(-1px); }
     .top-links { position: absolute; top: 20px; right: 20px; }
     .top-links a { color: var(--subtle); text-decoration: none; font-size: 13px; padding: 6px 14px; border: 1px solid var(--border); border-radius: 8px; transition: all 0.2s; }
     .top-links a:hover { color: var(--primary); border-color: var(--primary); }
@@ -68,9 +68,6 @@
       <button id="btnNew" class="btn-new">Mulai Baru</button>
     </div>
   </div>
-  <div class="top-links">
-    <a href="/admin">Admin Panel</a>
-  </div>
   <div class="main-card">
     <h3><%= title %></h3>
     <p class="subtitle">Silakan isi data Anda untuk memulai percakapan</p>
@@ -106,6 +103,14 @@
     (function () {
       const SESSION_KEY = 'dinkes_chat_session';
       const overlay = document.getElementById('resumeOverlay');
+
+      // Mulai baru dari dialog Back: jangan tampilkan prompt resume chat lama.
+      const params = new URLSearchParams(window.location.search);
+      if (params.get('startNew') === '1') {
+        localStorage.removeItem(SESSION_KEY);
+        window.history.replaceState(null, '', window.location.pathname);
+        return;
+      }
 
       const raw = localStorage.getItem(SESSION_KEY);
       if (!raw) return;
