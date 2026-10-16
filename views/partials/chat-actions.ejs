@@ -302,6 +302,7 @@
       });
       menuPanel.appendChild(b);
     });
+    if (window.LC_PUSH && window.LC_PUSH.mount) window.LC_PUSH.mount(menuPanel);
     wrap.appendChild(menuPanel);
     return wrap;
   }

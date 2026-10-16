@@ -14,6 +14,7 @@ const { createClient } = require("redis");
 const fs = require("fs");
 const path = require("path");
 const mailer = require("./mailer");
+const push = require("./push");
 
 const app = express();
 const http = require("http");
@@ -41,6 +42,18 @@ app.use(
   helmet({
     contentSecurityPolicy: false,
     crossOriginEmbedderPolicy: false,
+  }),
+);
+
+// File statis publik (manifest, service worker, ikon). Diletakkan sebelum
+// session/rate-limit agar aset tidak membuat sesi atau termakan limiter.
+app.use(
+  express.static(path.join(__dirname, "public"), {
+    setHeaders: (res, filePath) => {
+      if (filePath.endsWith("service-worker.js")) {
+        res.set("Cache-Control", "no-cache, no-store, must-revalidate");
+      }
+    },
   }),
 );
 
@@ -166,6 +179,86 @@ function identityCanAccessRoom(id, roomId) {
 }
 
 // =============================================
+// WEB PUSH: konteks pemilik subscription dari sesi server (bukan dari body)
+// =============================================
+function pushOwnerFromSession(req) {
+  const s = req.session;
+  if (!s) return null;
+  if (s.isAdmin && s.adminId && s.adminRumahSakit) {
+    return {
+      owner_type: "admin",
+      owner_id: s.adminId,
+      rumah_sakit: s.adminRumahSakit,
+      room_id: null,
+    };
+  }
+  if (s.patientRoomId) {
+    const i = s.patientRoomId.lastIndexOf("_");
+    const idPart = i > -1 ? s.patientRoomId.slice(i + 1) : "";
+    if (!/^\d+$/.test(idPart)) return null;
+    return {
+      owner_type: "patient",
+      owner_id: Number(idPart),
+      rumah_sakit: s.patientRumahSakit || null,
+      room_id: s.patientRoomId,
+    };
+  }
+  return null;
+}
+
+// Hanya izinkan endpoint dari push service yang dikenal (cegah SSRF/proxy).
+const PUSH_ENDPOINT_SUFFIXES = [
+  "fcm.googleapis.com",
+  "updates.push.services.mozilla.com",
+  "push.services.mozilla.com",
+  "notify.windows.com",
+  "push.apple.com",
+];
+function isValidPushEndpoint(endpoint) {
+  if (
+    typeof endpoint !== "string" ||
+    endpoint.length < 12 ||
+    endpoint.length > 2000
+  )
+    return false;
+  let url;
+  try {
+    url = new URL(endpoint);
+  } catch (e) {
+    return false;
+  }
+  if (url.protocol !== "https:") return false;
+  const host = url.hostname.toLowerCase();
+  return PUSH_ENDPOINT_SUFFIXES.some(
+    (sfx) => host === sfx || host.endsWith("." + sfx),
+  );
+}
+const BASE64URL_RE = /^[A-Za-z0-9\-_]+={0,2}$/;
+function parsePushSubscription(body) {
+  if (!body || typeof body !== "object") return null;
+  const keys = body.keys || {};
+  const endpoint = body.endpoint;
+  const p256dh = keys.p256dh;
+  const auth = keys.auth;
+  if (!isValidPushEndpoint(endpoint)) return null;
+  if (
+    typeof p256dh !== "string" ||
+    p256dh.length < 20 ||
+    p256dh.length > 250 ||
+    !BASE64URL_RE.test(p256dh)
+  )
+    return null;
+  if (
+    typeof auth !== "string" ||
+    auth.length < 10 ||
+    auth.length > 100 ||
+    !BASE64URL_RE.test(auth)
+  )
+    return null;
+  return { endpoint, p256dh, auth };
+}
+
+// =============================================
 // CSRF PROTECTION (token per session)
 // =============================================
 app.use((req, res, next) => {
@@ -232,6 +325,29 @@ db.query(
 )
   .then(() => console.log("Tabel room_unread siap."))
   .catch((err) => console.error("Gagal membuat tabel room_unread:", err.message));
+
+// Pastikan tabel push_subscriptions (Web Push) tersedia (lihat migrate-push-subscriptions.js).
+db.query(
+  `CREATE TABLE IF NOT EXISTS push_subscriptions (
+     id SERIAL PRIMARY KEY,
+     endpoint TEXT NOT NULL UNIQUE,
+     p256dh TEXT NOT NULL,
+     auth TEXT NOT NULL,
+     owner_type TEXT NOT NULL CHECK (owner_type IN ('patient','admin')),
+     owner_id INTEGER NOT NULL,
+     rumah_sakit TEXT,
+     room_id TEXT,
+     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+     last_used_at TIMESTAMPTZ,
+     revoked_at TIMESTAMPTZ,
+     CONSTRAINT chk_push_owner_admin CHECK (owner_type <> 'admin' OR rumah_sakit IS NOT NULL)
+   );`,
+)
+  .then(() => console.log("Tabel push_subscriptions siap."))
+  .catch((err) => console.error("Gagal membuat tabel push_subscriptions:", err.message));
+
+// Aktifkan Web Push (VAPID) bila kunci tersedia di environment.
+push.initPush();
 
 // =============================================
 // KEAMANAN UPLOAD: magic bytes + whitelist MIME
@@ -1606,6 +1722,89 @@ app.get("/api/rooms", requireAdmin, async (req, res) => {
 });
 
 // =============================================
+// API: Web Push - kunci publik & subscription (terotorisasi)
+// =============================================
+const pushLimiter = rateLimit({
+  windowMs: 5 * 60 * 1000,
+  limit: 30,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: "Terlalu banyak permintaan. Coba lagi nanti." },
+  ...makeStoreOpts(),
+});
+
+app.get("/api/push/public-key", (req, res) => {
+  if (!push.isEnabled()) {
+    return res.status(503).json({ error: "Notifikasi push tidak tersedia." });
+  }
+  res.json({ publicKey: push.getPublicKey() });
+});
+
+app.post("/api/push/subscribe", pushLimiter, async (req, res) => {
+  const owner = pushOwnerFromSession(req);
+  if (!owner) return res.status(401).json({ error: "Tidak terautentikasi." });
+  if (!push.isEnabled()) {
+    return res.status(503).json({ error: "Notifikasi push tidak tersedia." });
+  }
+  const sub = parsePushSubscription(req.body);
+  if (!sub) return res.status(400).json({ error: "Data subscription tidak valid." });
+  try {
+    await db.query(
+      `INSERT INTO push_subscriptions
+         (endpoint, p256dh, auth, owner_type, owner_id, rumah_sakit, room_id, revoked_at, last_used_at)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,NULL,NULL)
+       ON CONFLICT (endpoint) DO UPDATE SET
+         p256dh = EXCLUDED.p256dh,
+         auth = EXCLUDED.auth,
+         owner_type = EXCLUDED.owner_type,
+         owner_id = EXCLUDED.owner_id,
+         rumah_sakit = EXCLUDED.rumah_sakit,
+         room_id = EXCLUDED.room_id,
+         revoked_at = NULL,
+         last_used_at = NULL`,
+      [
+        sub.endpoint,
+        sub.p256dh,
+        sub.auth,
+        owner.owner_type,
+        owner.owner_id,
+        owner.rumah_sakit,
+        owner.room_id,
+      ],
+    );
+    res.json({ ok: true });
+  } catch (err) {
+    console.error("Error POST /api/push/subscribe:", err.message);
+    res.status(500).json({ error: "Terjadi kesalahan server." });
+  }
+});
+
+app.delete("/api/push/subscribe", pushLimiter, async (req, res) => {
+  const owner = pushOwnerFromSession(req);
+  if (!owner) return res.status(401).json({ error: "Tidak terautentikasi." });
+  const endpoint = req.body && req.body.endpoint;
+  if (
+    typeof endpoint !== "string" ||
+    endpoint.length < 12 ||
+    endpoint.length > 2000
+  ) {
+    return res.status(400).json({ error: "Data subscription tidak valid." });
+  }
+  try {
+    // Hanya boleh mencabut subscription milik sesi ini.
+    await db.query(
+      `UPDATE push_subscriptions SET revoked_at = NOW()
+        WHERE endpoint = $1 AND owner_type = $2 AND owner_id = $3`,
+      [endpoint, owner.owner_type, owner.owner_id],
+    );
+    res.json({ ok: true });
+  } catch (err) {
+    console.error("Error DELETE /api/push/subscribe:", err.message);
+    res.status(500).json({ error: "Terjadi kesalahan server." });
+  }
+});
+
+// =============================================
 // NOTIFIKASI BELUM DIBACA (unread) per admin & room
 // =============================================
 const onlineAdmins = {}; // { roomId: Set of admin usernames yang sedang membuka (membaca) room }
@@ -1659,6 +1858,47 @@ async function markRoomRead(roomId, adminName) {
     }
   } catch (err) {
     console.error("Error markRoomRead:", err.message);
+  }
+}
+
+// Kirim Web Push setelah pesan tersimpan (best effort).
+// Penerima:
+//   - pesan pasien  -> admin aktif yang berwenang pada rumah sakit room tsb
+//   - balasan admin -> pasien pemilik room
+// Isi notifikasi generik (tanpa data pasien); tab yang terlihat ditangani SW.
+async function sendPushForMessage(id, roomId, savedMsg) {
+  if (!push.isEnabled()) return;
+  const roomHash = crypto
+    .createHash("sha1")
+    .update(roomId)
+    .digest("hex")
+    .slice(0, 16);
+  const tag = "lc-" + roomHash;
+  const i = roomId.lastIndexOf("_");
+  const patientId = i > -1 ? roomId.slice(i + 1) : "";
+
+  if (id.type === "patient") {
+    const subs = await push.getHospitalAdminSubscriptions(
+      db,
+      roomHospital(roomId),
+    );
+    if (!subs.length) return;
+    await push.sendToSubscriptions(db, subs, {
+      title: "Live Chat",
+      body: "Ada pesan baru di Live Chat",
+      url: "/admin/room/" + encodeURIComponent(patientId),
+      tag,
+    });
+  } else if (id.type === "admin") {
+    if (!/^\d+$/.test(patientId)) return;
+    const subs = await push.getPatientSubscriptions(db, Number(patientId));
+    if (!subs.length) return;
+    await push.sendToSubscriptions(db, subs, {
+      title: "Live Chat",
+      body: "Ada pesan baru di Live Chat",
+      url: "/chat/" + encodeURIComponent(roomId),
+      tag,
+    });
   }
 }
 
@@ -1797,6 +2037,11 @@ io.on("connection", (socket) => {
       });
 
       bumpUnread(roomId);
+
+      // Notifikasi Web Push (best effort; setelah pesan tersimpan).
+      sendPushForMessage(id, roomId, savedMsg).catch((e) =>
+        console.error("Error sendPushForMessage:", e.message),
+      );
     } catch (err) {
       console.error("Gagal simpan pesan:", err.message);
     }

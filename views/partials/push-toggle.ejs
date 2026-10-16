@@ -1,0 +1,205 @@
+<!-- =============================================
+     Notifikasi pesan baru (Web Push) - item MENU TITIK TIGA
+     - Saat awal masuk, langsung meminta izin notifikasi.
+     - Tombol hanya menampilkan keterangan:
+         "Aktif"   -> izin diberikan (tombol TIDAK berfungsi / inert)
+         "Diblokir"-> izin diblokir (klik -> tampilkan modal panduan)
+     - window.LC_PUSH.mount(menuPanel, beforeEl) untuk disisipkan ke menu.
+     ============================================= -->
+<style>
+  .push-item-state { flex: 0 0 auto; font-size: 12px; font-weight: 700; color: var(--subtle); }
+  .ct-menu-item[data-push-state="on"] .push-item-state { color: var(--primary); }
+  .ct-menu-item[data-push-state="on"] { cursor: default; }
+  .ct-menu-item[data-push-state="blocked"] .push-item-state { color: #dc2626; }
+
+  .push-modal-overlay { position: fixed; inset: 0; background: rgba(15,23,42,.55); z-index: 500; display: flex; align-items: center; justify-content: center; padding: 20px; }
+  .push-modal-overlay[hidden] { display: none; }
+  .push-modal { background: var(--surface); border-radius: 16px; padding: 18px; width: 100%; max-width: 360px; box-shadow: 0 20px 50px rgba(0,0,0,.25); }
+  .push-modal h3 { font-size: 17px; margin: 0 0 6px; color: var(--text); }
+  .push-modal p { font-size: 14px; color: var(--subtle); margin: 0 0 10px; line-height: 1.5; }
+  .push-modal ol { margin: 0 0 12px; padding-left: 18px; font-size: 13px; color: var(--text); line-height: 1.6; }
+  .push-modal ol li { margin-bottom: 4px; }
+  .push-modal .push-modal-note { font-size: 12px; color: var(--subtle); background: var(--bg); border: 1px solid var(--border); border-radius: 10px; padding: 8px 10px; margin-bottom: 12px; }
+  .push-modal .push-mbtn { display: block; width: 100%; padding: 11px 14px; border-radius: 10px; border: none; background: var(--primary); color: #fff; font-size: 14px; font-weight: 700; cursor: pointer; }
+  .push-modal .push-mbtn:hover { background: var(--primary-dark); }
+</style>
+
+<div class="push-modal-overlay" id="pushDeniedModal" hidden>
+  <div class="push-modal" role="dialog" aria-modal="true" aria-labelledby="pushDeniedTitle">
+    <h3 id="pushDeniedTitle">Notifikasi diblokir</h3>
+    <p>Izin notifikasi untuk aplikasi ini sedang diblokir. Ubah izin melalui pengaturan situs/aplikasi, lalu muat ulang halaman.</p>
+    <ol id="pushDeniedSteps">
+      <li>Buka <b>pengaturan situs/aplikasi</b> di browser (ikon kunci atau titik-titik di address bar).</li>
+      <li>Pilih <b>Notifikasi</b>, lalu ubah menjadi <b>Izinkan</b>.</li>
+      <li>Muat ulang halaman ini.</li>
+    </ol>
+    <div class="push-modal-note">Di Android/iOS: Setelan (Settings) &rarr; Aplikasi/Situs &rarr; Notifikasi &rarr; Izinkan.</div>
+    <button type="button" class="push-mbtn" id="pushDeniedOk">Mengerti</button>
+  </div>
+</div>
+
+<script>
+(function () {
+  var supported =
+    "serviceWorker" in navigator &&
+    "PushManager" in window &&
+    "Notification" in window;
+
+  var BELL =
+    '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M18 8a6 6 0 1 0-12 0c0 7-3 9-3 9h18s-3-2-3-9"></path><path d="M13.7 21a2 2 0 0 1-3.4 0"></path></svg>';
+
+  var reg = null;
+  var publicKey = null;
+  var ready = false;
+  var dead = !supported;
+  var items = [];
+  var initPromise = null;
+
+  function csrf() {
+    var m = document.querySelector('meta[name="csrf-token"]');
+    return m ? m.content : "";
+  }
+
+  function urlBase64ToUint8Array(base64String) {
+    var padding = "=".repeat((4 - (base64String.length % 4)) % 4);
+    var base64 = (base64String + padding).replace(/-/g, "+").replace(/_/g, "/");
+    var raw = window.atob(base64);
+    var out = new Uint8Array(raw.length);
+    for (var i = 0; i < raw.length; i++) out[i] = raw.charCodeAt(i);
+    return out;
+  }
+
+  function openDeniedHelp() {
+    var el = document.getElementById("pushDeniedModal");
+    if (el) el.hidden = false;
+  }
+  (function wireModal() {
+    function close() {
+      var el = document.getElementById("pushDeniedModal");
+      if (el) el.hidden = true;
+    }
+    document.addEventListener("click", function (e) {
+      if (e.target && e.target.id === "pushDeniedOk") close();
+      if (e.target && e.target.id === "pushDeniedModal") close();
+    });
+    document.addEventListener("keydown", function (e) {
+      if (e.key === "Escape") close();
+    });
+  })();
+
+  function applyState() {
+    items = items.filter(function (it) {
+      if (it.el.isConnected) { it.live = true; return true; }
+      return !it.live;
+    });
+    var granted = Notification.permission === "granted";
+    items.forEach(function (it) {
+      if (dead || !ready) { it.el.style.display = "none"; return; }
+      it.el.style.display = "";
+      it.labelEl.textContent = "Notifikasi";
+      if (granted) {
+        it.el.setAttribute("data-push-state", "on");
+        it.stateEl.textContent = "Aktif";
+        it.el.title = "Notifikasi aktif";
+        it.el.setAttribute("aria-disabled", "true");
+      } else {
+        it.el.setAttribute("data-push-state", "blocked");
+        it.stateEl.textContent = "Diblokir";
+        it.el.title = "Notifikasi diblokir. Klik untuk membuka panduan mengizinkan.";
+        it.el.removeAttribute("aria-disabled");
+      }
+    });
+  }
+
+  function mount(panel, beforeEl) {
+    if (!panel || dead) return null;
+    if (panel.querySelector("#pushToggleBtn")) return null;
+    var btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "ct-menu-item";
+    btn.id = "pushToggleBtn";
+    btn.setAttribute("data-push-state", "on");
+    btn.style.display = "none";
+    btn.innerHTML =
+      BELL +
+      '<span class="push-toggle-label" style="flex:1 1 auto">Notifikasi</span>' +
+      '<span class="push-item-state"></span>';
+    btn.addEventListener("click", function (e) {
+      e.stopPropagation();
+      panel.hidden = true;
+      // Izin aktif -> tombol tidak berfungsi.
+      if (Notification.permission === "granted") return;
+      // Izin diblokir -> tampilkan panduan pengaturan izin.
+      openDeniedHelp();
+    });
+    if (beforeEl && beforeEl.parentNode === panel) panel.insertBefore(btn, beforeEl);
+    else panel.appendChild(btn);
+    var rec = {
+      el: btn,
+      labelEl: btn.querySelector(".push-toggle-label"),
+      stateEl: btn.querySelector(".push-item-state"),
+    };
+    items.push(rec);
+    applyState();
+    return btn;
+  }
+
+  function autoMount() {
+    var panel = document.getElementById("adminMenuPanel");
+    if (!panel) return;
+    // Taruh tombol notifikasi SEBELUM tombol Logout (Logout tetap paling bawah).
+    var logout = document.getElementById("adminLogoutItem");
+    mount(panel, logout || null);
+  }
+
+  async function init() {
+    if (dead) return;
+
+    // Langsung minta izin notifikasi saat awal masuk.
+    var perm = Notification.permission;
+    if (perm === "default") {
+      try { perm = await Notification.requestPermission(); }
+      catch (e) { perm = Notification.permission; }
+    }
+
+    try { reg = await navigator.serviceWorker.register("/service-worker.js"); }
+    catch (e) { dead = true; applyState(); return; }
+    try {
+      var r = await fetch("/api/push/public-key");
+      if (!r.ok) throw new Error("no-key");
+      publicKey = (await r.json()).publicKey;
+      if (!publicKey) throw new Error("no-key");
+    } catch (e) { dead = true; applyState(); return; }
+
+    if (perm === "granted") {
+      try {
+        var sub = await reg.pushManager.getSubscription();
+        if (!sub) {
+          sub = await reg.pushManager.subscribe({
+            userVisibleOnly: true,
+            applicationServerKey: urlBase64ToUint8Array(publicKey),
+          });
+        }
+        // Pastikan subscription tersimpan di server (upsert).
+        await fetch("/api/push/subscribe", {
+          method: "POST",
+          headers: { "Content-Type": "application/json", "x-csrf-token": csrf() },
+          body: JSON.stringify(sub),
+        });
+      } catch (e) {}
+    }
+
+    ready = true;
+    applyState();
+  }
+
+  window.LC_PUSH = { mount: mount, refresh: applyState };
+
+  if (document.readyState === "loading") {
+    document.addEventListener("DOMContentLoaded", autoMount);
+  } else {
+    autoMount();
+  }
+  initPromise = init();
+})();
+</script>

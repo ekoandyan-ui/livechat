@@ -123,3 +123,26 @@ CREATE TABLE IF NOT EXISTS admin_tokens (
 );
 CREATE INDEX IF NOT EXISTS idx_admin_tokens_admin ON admin_tokens(admin_id, purpose);
 CREATE INDEX IF NOT EXISTS idx_admin_tokens_hash ON admin_tokens(token_hash);
+
+-- 13. Web Push subscriptions (notifikasi pesan baru saat web ditutup)
+-- endpoint  : URL push service (unik per perangkat/browser).
+-- p256dh/auth: kunci subscription (data sensitif; jangan dicatat ke log).
+-- owner_type/owner_id: pemilik subscription (pasien atau admin).
+-- rumah_sakit: konteks otorisasi (admin wajib; pasien juga diisi dari room).
+-- revoked_at : diisi saat pengguna mematikan notifikasi (unsubscribe).
+CREATE TABLE IF NOT EXISTS push_subscriptions (
+  id SERIAL PRIMARY KEY,
+  endpoint TEXT NOT NULL UNIQUE,
+  p256dh TEXT NOT NULL,
+  auth TEXT NOT NULL,
+  owner_type TEXT NOT NULL CHECK (owner_type IN ('patient','admin')),
+  owner_id INTEGER NOT NULL,
+  rumah_sakit TEXT,
+  room_id TEXT,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  last_used_at TIMESTAMPTZ,
+  revoked_at TIMESTAMPTZ,
+  CONSTRAINT chk_push_owner_admin CHECK (owner_type <> 'admin' OR rumah_sakit IS NOT NULL)
+);
+CREATE INDEX IF NOT EXISTS idx_push_owner ON push_subscriptions(owner_type, owner_id);
+CREATE INDEX IF NOT EXISTS idx_push_admin_rs ON push_subscriptions(owner_type, rumah_sakit) WHERE revoked_at IS NULL;
