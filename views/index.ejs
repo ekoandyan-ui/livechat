@@ -36,10 +36,8 @@
     .overlay-card h3 { color: var(--primary); font-weight: 700; margin-bottom: 8px; font-size: 22px; }
     .overlay-card p { color: var(--subtle); font-size: 14px; margin-bottom: 25px; }
     .overlay-card .continue-name { color: var(--primary); font-weight: 600; }
-    .btn-continue { background: var(--primary); border: none; color: #fff; font-weight: 600; padding: 12px; border-radius: 10px; width: 100%; font-size: 15px; margin-bottom: 10px; transition: all 0.2s ease-in-out; }
+    .btn-continue { background: var(--primary); border: none; color: #fff; font-weight: 600; padding: 12px; border-radius: 10px; width: 100%; font-size: 15px; margin-bottom: 0; transition: all 0.2s ease-in-out; }
     .btn-continue:hover { background: var(--primary-dark); transform: translateY(-1px); }
-    .btn-new { background: var(--bg); border: 1px solid var(--border); color: var(--text); font-weight: 600; padding: 12px; border-radius: 10px; width: 100%; font-size: 15px; transition: all 0.2s ease-in-out; }
-    .btn-new:hover { color: var(--primary); border-color: var(--primary); }
 
     @media (max-width: 576px) {
       body { padding: 12px; justify-content: flex-start; }
@@ -55,19 +53,19 @@
       .overlay-card { padding: 26px 18px; border-radius: 14px; }
       .overlay-card h3 { font-size: 19px; }
       .overlay-card p { font-size: 13px; }
-      .btn-continue, .btn-new { padding: 12px; font-size: 14px; }
+      .btn-continue { padding: 12px; font-size: 14px; }
     }
   </style>
 </head>
 <body>
   <div class="overlay" id="resumeOverlay">
     <div class="overlay-card">
-      <h3>Selamat Datang Kembali!</h3>
-      <p>Anda memiliki percakapan sebelumnya dengan nama <span class="continue-name" id="continueName"></span>. Lanjutkan chat atau mulai baru?</p>
+      <h3>Sesi Percakapan Aktif</h3>
+      <p>Anda memiliki sesi percakapan dengan nama <span class="continue-name" id="continueName"></span>. Silakan lanjutkan chat untuk berkomunikasi.</p>
       <button id="btnContinue" class="btn-continue">Lanjutkan Chat</button>
-      <button id="btnNew" class="btn-new">Mulai Baru</button>
     </div>
   </div>
+  <div id="serverPatientData" hidden data-active="<%= JSON.stringify(typeof activePatient !== 'undefined' ? activePatient : null) %>"></div>
   <div class="main-card">
     <h3><%= title %></h3>
     <p class="subtitle">Silakan isi data Anda untuk memulai percakapan</p>
@@ -103,42 +101,59 @@
     (function () {
       const SESSION_KEY = 'dinkes_chat_session';
       const overlay = document.getElementById('resumeOverlay');
+      const continueBtn = document.getElementById('btnContinue');
+      const continueName = document.getElementById('continueName');
+      const serverDataEl = document.getElementById('serverPatientData');
 
-      // Mulai baru dari dialog Back: jangan tampilkan prompt resume chat lama.
-      const params = new URLSearchParams(window.location.search);
-      if (params.get('startNew') === '1') {
-        localStorage.removeItem(SESSION_KEY);
-        window.history.replaceState(null, '', window.location.pathname);
-        return;
+      let currentRoomId = null;
+
+      // 1. Cek dari data sesi server terlebih dahulu
+      let serverPatient = null;
+      try {
+        if (serverDataEl) {
+          serverPatient = JSON.parse(serverDataEl.getAttribute('data-active') || 'null');
+        }
+      } catch (e) {}
+
+      // 2. Cek dari localStorage jika di server belum ada
+      let localSession = null;
+      const raw = localStorage.getItem(SESSION_KEY);
+      if (raw) {
+        try { localSession = JSON.parse(raw); } catch (e) {}
       }
 
-      const raw = localStorage.getItem(SESSION_KEY);
-      if (!raw) return;
+      const candidateRoomId = (serverPatient && serverPatient.roomId) || (localSession && localSession.roomId);
+      const candidateName = (serverPatient && serverPatient.userName) || (localSession && localSession.userName);
 
-      let session;
-      try { session = JSON.parse(raw); } catch (e) { return; }
-      if (!session || !session.roomId) return;
+      if (!candidateRoomId) return;
 
-      // Pastikan chat pasien masih ada sebelum menampilkan overlay
-      fetch('/api/patient-exists/' + encodeURIComponent(session.roomId))
+      // 3. Pastikan chat pasien masih ada di database sebelum menampilkan overlay
+      fetch('/api/patient-exists/' + encodeURIComponent(candidateRoomId))
         .then((r) => r.json())
         .then((data) => {
           if (data && data.exists === true) {
-            document.getElementById('continueName').textContent = session.userName || session.roomId;
+            currentRoomId = candidateRoomId;
+            const displayName = data.userName || candidateName || candidateRoomId;
+            continueName.textContent = displayName;
             overlay.classList.add('show');
+            // Pastikan data tersinkron di localStorage
+            localStorage.setItem(SESSION_KEY, JSON.stringify({
+              roomId: candidateRoomId,
+              userName: displayName,
+              savedAt: Date.now()
+            }));
           } else {
+            // Pasien telah dihapus total oleh admin: bersihkan storage
             localStorage.removeItem(SESSION_KEY);
+            overlay.classList.remove('show');
           }
         })
         .catch(() => {});
 
-      document.getElementById('btnContinue').addEventListener('click', () => {
-        window.location.href = '/chat/' + encodeURIComponent(session.roomId);
-      });
-
-      document.getElementById('btnNew').addEventListener('click', () => {
-        localStorage.removeItem(SESSION_KEY);
-        overlay.classList.remove('show');
+      continueBtn.addEventListener('click', () => {
+        if (currentRoomId) {
+          window.location.href = '/chat/' + encodeURIComponent(currentRoomId);
+        }
       });
     })();
   </script>

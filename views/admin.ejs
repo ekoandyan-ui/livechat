@@ -354,17 +354,24 @@
       });
     })();
 
-    // ---------- Badge notifikasi pesan baru (real-time) ----------
+    // ---------- Badge + urutan room (real-time) ----------
     (function () {
       const badgeHost = document.querySelector('.hospital-badge');
       if (!badgeHost) return;
+      const listEl = document.querySelector('.room-list');
       const socket = io();
       socket.emit('join-admin-badges', badgeHost.textContent.trim());
+
+      function findItem(roomId) {
+        if (!listEl) return null;
+        return Array.prototype.find.call(
+          listEl.querySelectorAll('.room-item'),
+          function (it) { return it.getAttribute('data-room') === String(roomId); }
+        ) || null;
+      }
+
       function setBadge(roomId, count) {
-        var item = null;
-        document.querySelectorAll('.room-item').forEach(function (it) {
-          if (!item && it.getAttribute('data-room') === String(roomId)) item = it;
-        });
+        const item = findItem(roomId);
         if (!item) return;
         let b = item.querySelector('.unread-badge');
         if (!b) {
@@ -375,8 +382,42 @@
         b.textContent = count > 99 ? '99+' : String(count);
         b.hidden = count <= 0;
       }
+
+      // Naikkan room ke paling atas, tetap di bawah room yang disematkan (pinned).
+      function moveToTop(item) {
+        if (!listEl || !item) return;
+        const pinned = listEl.querySelectorAll('.room-item.pinned');
+        const lastPinned = pinned.length ? pinned[pinned.length - 1] : null;
+        if (lastPinned) {
+          if (lastPinned.nextElementSibling !== item) {
+            listEl.insertBefore(item, lastPinned.nextElementSibling);
+          }
+        } else if (listEl.firstElementChild !== item) {
+          listEl.insertBefore(item, listEl.firstElementChild);
+        }
+      }
+
+      // Room baru (belum ada di daftar) -> muat ulang agar tersusun benar.
+      let reloadScheduled = false;
+      function scheduleReload() {
+        if (reloadScheduled) return;
+        reloadScheduled = true;
+        setTimeout(function () { location.reload(); }, 500);
+      }
+
       socket.on('unread-update', (d) => {
         if (d && d.roomId != null) setBadge(d.roomId, Number(d.count) || 0);
+      });
+
+      socket.on('room-activity', (d) => {
+        if (!d || d.roomId == null) return;
+        const item = findItem(d.roomId);
+        if (!item) { scheduleReload(); return; }
+        if (typeof d.message === 'string' && d.message !== '' && d.senderName != null) {
+          const last = item.querySelector('.last-msg');
+          if (last) last.textContent = d.senderName + ': ' + d.message;
+        }
+        moveToTop(item);
       });
     })();
   </script>

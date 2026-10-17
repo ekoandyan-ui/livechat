@@ -313,6 +313,14 @@ db.query(
   .then(() => console.log("Kolom is_pinned siap."))
   .catch((err) => console.error("Gagal menambah kolom is_pinned:", err.message));
 
+// Pastikan kolom patient_token (fitur identitas pasien tetap) tersedia.
+db.query(
+  `ALTER TABLE patients ADD COLUMN IF NOT EXISTS patient_token TEXT;
+   CREATE UNIQUE INDEX IF NOT EXISTS idx_patients_token ON patients(patient_token) WHERE patient_token IS NOT NULL;`,
+)
+  .then(() => console.log("Kolom patient_token siap."))
+  .catch((err) => console.error("Gagal menambah kolom patient_token:", err.message));
+
 // Pastikan tabel notifikasi unread (badge pesan baru) tersedia.
 db.query(
   `CREATE TABLE IF NOT EXISTS room_unread (
@@ -508,6 +516,9 @@ async function deletePatientFully(patientId, rumahSakit) {
 
   const roomId = `${user.rumah_sakit}_${user.id}`;
   await db.query("DELETE FROM messages WHERE room_id = $1", [roomId]);
+  await db.query("DELETE FROM message_visibility WHERE room_id = $1", [roomId]).catch(() => {});
+  await db.query("DELETE FROM push_subscriptions WHERE room_id = $1", [roomId]).catch(() => {});
+  await db.query("DELETE FROM room_unread WHERE room_id = $1", [roomId]).catch(() => {});
   await db.query("DELETE FROM patients WHERE id = $1", [patientId]);
 
   // Beri tahu pasien di room tersebut agar otomatis kembali ke form awal
@@ -708,12 +719,102 @@ app.get("/test-db", async (req, res) => {
 });
 
 // =============================================
+// COOKIE & PERSISTENT PATIENT SESSION HELPERS
+// =============================================
+function getCookie(req, name) {
+  const header = req && req.headers && req.headers.cookie;
+  if (!header) return null;
+  const match = header.match(
+    new RegExp("(?:^|;\\s*)" + name.replace(/[-[\]{}()*+?.,\\^$|#\s]/g, "\\$&") + "=([^;]*)"),
+  );
+  return match ? decodeURIComponent(match[1]) : null;
+}
+
+function setPatientCookie(res, token) {
+  res.cookie("dinkes_patient_token", token, {
+    httpOnly: true,
+    maxAge: 365 * 24 * 60 * 60 * 1000, // 1 tahun
+    secure: IS_PRODUCTION || process.env.COOKIE_SECURE === "true",
+    sameSite: "lax",
+    path: "/",
+  });
+}
+
+function clearPatientCookie(res) {
+  res.clearCookie("dinkes_patient_token", {
+    path: "/",
+  });
+}
+
+// Middleware: Auto-restore sesi pasien dari token persisten jika session server habis
+app.use(async (req, res, next) => {
+  if (req.session && !req.session.patientRoomId && !req.session.isAdmin) {
+    const token = getCookie(req, "dinkes_patient_token");
+    if (token && typeof token === "string" && token.length >= 32) {
+      try {
+        const result = await db.query(
+          "SELECT id, nama, alamat, nomor_wa, rumah_sakit, patient_token FROM patients WHERE patient_token = $1",
+          [token],
+        );
+        if (result.rows.length > 0) {
+          const patient = result.rows[0];
+          req.session.patientRoomId = `${patient.rumah_sakit}_${patient.id}`;
+          req.session.patientName = patient.nama;
+          req.session.patientRumahSakit = patient.rumah_sakit;
+          req.session.patientToken = token;
+        } else {
+          // Token tidak ada di DB (misal karena admin sudah menghapus total data pasien)
+          clearPatientCookie(res);
+        }
+      } catch (err) {
+        console.error("Error auto-restore patient session:", err.message);
+      }
+    }
+  }
+  next();
+});
+
+// =============================================
 // ROUTE: Halaman Utama - Input Data Pasien
 // =============================================
-app.get("/", (req, res) => {
+app.get("/", async (req, res) => {
+  let activePatient = null;
+
+  // Cek apakah ada sesi pasien yang masih aktif
+  if (req.session && req.session.patientRoomId) {
+    const roomId = req.session.patientRoomId;
+    const lastUnderscore = roomId.lastIndexOf("_");
+    const userId =
+      lastUnderscore > -1 ? roomId.substring(lastUnderscore + 1) : roomId;
+    if (/^\d+$/.test(userId)) {
+      try {
+        const chk = await db.query(
+          "SELECT id, nama, rumah_sakit FROM patients WHERE id = $1",
+          [userId],
+        );
+        if (chk.rows.length > 0) {
+          activePatient = {
+            roomId,
+            userName: chk.rows[0].nama || req.session.patientName,
+          };
+        } else {
+          // Pasien sudah dihapus total oleh admin: bersihkan sesi & cookie
+          clearPatientCookie(res);
+          delete req.session.patientRoomId;
+          delete req.session.patientName;
+          delete req.session.patientRumahSakit;
+          delete req.session.patientToken;
+        }
+      } catch (err) {
+        console.error("Error cek active patient di /:", err.message);
+      }
+    }
+  }
+
   res.render("index", {
     title: "TAMBAH PASIEN BARU",
     rumahSakitList: RUMAH_SAKIT_LIST,
+    activePatient,
   });
 });
 
@@ -726,16 +827,92 @@ app.post("/tambah", registerLimiter, async (req, res) => {
     if (!rumah_sakit || !RUMAH_SAKIT_LIST.includes(rumah_sakit)) {
       return res.status(400).send("Rumah sakit tidak valid.");
     }
+
+    // 1. Cek apakah pengguna saat ini sudah memiliki pasien aktif di DB
+    let existingPatient = null;
+
+    // Cek berdasarkan token di cookie
+    const tokenFromCookie = getCookie(req, "dinkes_patient_token");
+    if (tokenFromCookie && tokenFromCookie.length >= 32) {
+      const chkToken = await db.query(
+        "SELECT id, nama, alamat, nomor_wa, rumah_sakit, patient_token FROM patients WHERE patient_token = $1",
+        [tokenFromCookie],
+      );
+      if (chkToken.rows.length > 0) {
+        existingPatient = chkToken.rows[0];
+      }
+    }
+
+    // Cek berdasarkan session patientRoomId
+    if (!existingPatient && req.session && req.session.patientRoomId) {
+      const lastUnderscore = req.session.patientRoomId.lastIndexOf("_");
+      const userId =
+        lastUnderscore > -1
+          ? req.session.patientRoomId.substring(lastUnderscore + 1)
+          : req.session.patientRoomId;
+      if (/^\d+$/.test(userId)) {
+        const chkSess = await db.query(
+          "SELECT id, nama, alamat, nomor_wa, rumah_sakit, patient_token FROM patients WHERE id = $1",
+          [userId],
+        );
+        if (chkSess.rows.length > 0) {
+          existingPatient = chkSess.rows[0];
+        }
+      }
+    }
+
+    // Cek berdasarkan nomor WhatsApp & Rumah Sakit yang sama yang belum dihapus
+    if (!existingPatient && nomor_wa) {
+      const chkWa = await db.query(
+        "SELECT id, nama, alamat, nomor_wa, rumah_sakit, patient_token FROM patients WHERE nomor_wa = $1 AND rumah_sakit = $2 ORDER BY id DESC LIMIT 1",
+        [nomor_wa, rumah_sakit],
+      );
+      if (chkWa.rows.length > 0) {
+        existingPatient = chkWa.rows[0];
+      }
+    }
+
+    // Jika pasien sudah ada dan belum dihapus admin: gunakan ID yang sama dan tetap!
+    if (existingPatient) {
+      const roomId = `${existingPatient.rumah_sakit}_${existingPatient.id}`;
+      let token = existingPatient.patient_token;
+      if (!token) {
+        token = crypto.randomBytes(32).toString("hex");
+        await db.query(
+          "UPDATE patients SET patient_token = $1 WHERE id = $2",
+          [token, existingPatient.id],
+        );
+      }
+      setPatientCookie(res, token);
+      req.session.patientRoomId = roomId;
+      req.session.patientName = existingPatient.nama;
+      req.session.patientRumahSakit = existingPatient.rumah_sakit;
+      req.session.patientToken = token;
+      return res.redirect(`/chat/${encodeURIComponent(roomId)}`);
+    }
+
+    // Pasien baru (belum pernah ada atau data lama telah dihapus total oleh admin)
+    const newToken = crypto.randomBytes(32).toString("hex");
     const result = await db.query(
-      "INSERT INTO patients (nama, alamat, nomor_wa, rumah_sakit) VALUES ($1, $2, $3, $4) RETURNING id",
-      [nama, alamat, nomor_wa, rumah_sakit],
+      "INSERT INTO patients (nama, alamat, nomor_wa, rumah_sakit, patient_token) VALUES ($1, $2, $3, $4, $5) RETURNING id",
+      [nama, alamat, nomor_wa, rumah_sakit, newToken],
     );
     const newUserId = result.rows[0].id;
     const roomId = `${rumah_sakit}_${newUserId}`;
+
+    // Beri tahu sidebar admin bahwa ada room/pasien baru (muncul di paling atas).
+    io.to(ADMIN_CHAN(rumah_sakit)).emit("room-activity", {
+      roomId,
+      newRoom: true,
+      patientName: nama,
+    });
+
+    setPatientCookie(res, newToken);
     req.session.regenerate((err) => {
       req.session.patientRoomId = roomId;
       req.session.patientName = nama;
       req.session.patientRumahSakit = rumah_sakit;
+      req.session.patientToken = newToken;
       req.session.csrfToken = crypto.randomBytes(16).toString("hex");
       const target = `/chat/${encodeURIComponent(roomId)}`;
       if (err) return res.redirect(target);
@@ -769,7 +946,32 @@ app.get("/chat/:roomId", async (req, res) => {
     const user = userResult.rows[0];
 
     // Jika pasien sudah dihapus admin (total chat dihapus), otomatis kembali ke form awal
-    if (!user) return res.redirect("/");
+    if (!user) {
+      clearPatientCookie(res);
+      if (req.session) {
+        delete req.session.patientRoomId;
+        delete req.session.patientName;
+        delete req.session.patientRumahSakit;
+        delete req.session.patientToken;
+      }
+      return res.redirect("/");
+    }
+
+    // Jika sesi pasien belum tersinkron tapi token cookie cocok
+    const token = getCookie(req, "dinkes_patient_token");
+    if (token && user.patient_token && user.patient_token === token) {
+      if (!req.session.patientRoomId || req.session.patientRoomId !== roomId) {
+        req.session.patientRoomId = roomId;
+        req.session.patientName = user.nama;
+        req.session.patientRumahSakit = rumahSakit;
+        req.session.patientToken = token;
+      }
+    }
+
+    // Pastikan cookie tetap diset jika sesi pasien sah
+    if (user.patient_token && (!token || token !== user.patient_token) && req.session.patientRoomId === roomId) {
+      setPatientCookie(res, user.patient_token);
+    }
 
     // Hanya pemilik room (identitas pasien dari session) yang boleh membuka chat
     const id = sessionIdentity(req);
@@ -1197,40 +1399,58 @@ app.get("/admin/logout", (req, res) => {
 });
 
 // =============================================
+// HELPER: Daftar room (pasien) satu rumah sakit, terurut untuk sidebar admin.
+// Urutan: room yang disematkan (pin) selalu di atas, lalu berdasarkan
+// aktivitas terakhir menurun (pesan terbaru; jika belum ada pesan, waktu
+// pendaftaran pasien) sehingga room dengan aktivitas terbaru muncul di paling atas.
+// =============================================
+async function fetchAdminRooms(rumahSakit) {
+  const usersResult = await db.query(
+    "SELECT * FROM patients WHERE rumah_sakit = $1",
+    [rumahSakit],
+  );
+  const rooms = [];
+  for (const user of usersResult.rows) {
+    const room_id = `${user.rumah_sakit}_${user.id}`;
+    const msgCount = await db.query(
+      "SELECT COUNT(*) as total FROM messages WHERE room_id = $1",
+      [room_id],
+    );
+    const lastMsg = await db.query(
+      "SELECT id, room_id, sender_name, message, message_type, file_name, file_mime, file_size, created_at FROM messages WHERE room_id = $1 ORDER BY created_at DESC LIMIT 1",
+      [room_id],
+    );
+    const lastMessage = lastMsg.rows.length > 0 ? lastMsg.rows[0] : null;
+    rooms.push({
+      id: user.id,
+      nama: user.nama,
+      alamat: user.alamat,
+      nomor_wa: user.nomor_wa,
+      rumah_sakit: user.rumah_sakit,
+      roomId: room_id,
+      isPinned: !!user.is_pinned,
+      totalPesan: parseInt(msgCount.rows[0].total),
+      lastMessage,
+      // Waktu aktivitas terakhir: pesan terbaru, atau waktu pendaftaran pasien.
+      lastActivity: new Date(
+        lastMessage ? lastMessage.created_at : user.created_at,
+      ).getTime(),
+    });
+  }
+  rooms.sort((a, b) => {
+    if (a.isPinned !== b.isPinned) return a.isPinned ? -1 : 1;
+    return b.lastActivity - a.lastActivity;
+  });
+  return rooms;
+}
+
+// =============================================
 // ROUTE: Admin - Dashboard (filtered by hospital)
 // =============================================
 app.get("/admin", requireAdmin, async (req, res) => {
   try {
     const rumahSakit = req.session.adminRumahSakit;
-    // Only get users (patients) for this admin's hospital
-    const usersResult = await db.query(
-      "SELECT * FROM patients WHERE rumah_sakit = $1 ORDER BY is_pinned DESC, id ASC",
-      [rumahSakit],
-    );
-    const rooms = [];
-
-    for (const user of usersResult.rows) {
-      const room_id = `${user.rumah_sakit}_${user.id}`;
-      const msgCount = await db.query(
-        "SELECT COUNT(*) as total FROM messages WHERE room_id = $1",
-        [room_id],
-      );
-      const lastMsg = await db.query(
-        "SELECT id, room_id, sender_name, message, message_type, file_name, file_mime, file_size, created_at FROM messages WHERE room_id = $1 ORDER BY created_at DESC LIMIT 1",
-        [room_id],
-      );
-      rooms.push({
-        id: user.id,
-        nama: user.nama,
-        alamat: user.alamat,
-        nomor_wa: user.nomor_wa,
-        rumah_sakit: user.rumah_sakit,
-        roomId: room_id,
-        isPinned: !!user.is_pinned,
-        totalPesan: parseInt(msgCount.rows[0].total),
-        lastMessage: lastMsg.rows.length > 0 ? lastMsg.rows[0] : null,
-      });
-    }
+    const rooms = await fetchAdminRooms(rumahSakit);
 
     // Jumlah pesan belum dibaca per room untuk admin ini
     const unreadRes = await db.query(
@@ -1434,19 +1654,57 @@ app.get("/api/messages/:roomId", async (req, res) => {
 app.get("/api/patient-exists/:roomId", async (req, res) => {
   const roomId = req.params.roomId;
   try {
-    // Jangan konfirmasi keberadaan room kepada yang tidak berhak
-    const id = sessionIdentity(req);
-    if (!id || !identityCanAccessRoom(id, roomId)) {
-      return res.json({ exists: false });
-    }
     const lastUnderscore = roomId.lastIndexOf("_");
     const userId =
       lastUnderscore > -1 ? roomId.substring(lastUnderscore + 1) : roomId;
     if (!/^\d+$/.test(userId)) return res.json({ exists: false });
-    const result = await db.query("SELECT id FROM patients WHERE id = $1", [
-      userId,
-    ]);
-    res.json({ exists: result.rows.length > 0 });
+
+    const result = await db.query(
+      "SELECT id, nama, rumah_sakit, patient_token FROM patients WHERE id = $1",
+      [userId],
+    );
+    if (result.rows.length === 0) {
+      clearPatientCookie(res);
+      if (req.session) {
+        delete req.session.patientRoomId;
+        delete req.session.patientName;
+        delete req.session.patientRumahSakit;
+        delete req.session.patientToken;
+      }
+      return res.json({ exists: false });
+    }
+
+    const patient = result.rows[0];
+    const expectedRoomId = `${patient.rumah_sakit}_${patient.id}`;
+    if (expectedRoomId !== roomId) {
+      return res.json({ exists: false });
+    }
+
+    const id = sessionIdentity(req);
+    const token = getCookie(req, "dinkes_patient_token");
+    const isOwnerByToken = Boolean(
+      token && patient.patient_token && token === patient.patient_token,
+    );
+    const isOwnerBySession = Boolean(
+      id && id.type === "patient" && id.roomId === roomId,
+    );
+    const isAdmin = Boolean(
+      id && id.type === "admin" && id.rumahSakit === patient.rumah_sakit,
+    );
+
+    if (!isOwnerByToken && !isOwnerBySession && !isAdmin) {
+      return res.json({ exists: false });
+    }
+
+    // Pulihkan sesi jika token cocok tapi sesi belum tersimpan di session server
+    if (isOwnerByToken && (!req.session || !req.session.patientRoomId)) {
+      req.session.patientRoomId = roomId;
+      req.session.patientName = patient.nama;
+      req.session.patientRumahSakit = patient.rumah_sakit;
+      req.session.patientToken = token;
+    }
+
+    res.json({ exists: true, userName: patient.nama, roomId });
   } catch (err) {
     console.error("Error /api/patient-exists:", err.message);
     res.status(500).json({ error: "Terjadi kesalahan server." });
@@ -1683,27 +1941,7 @@ app.get("/api/file/:id", async (req, res) => {
 app.get("/api/rooms", requireAdmin, async (req, res) => {
   try {
     const rumahSakit = req.session.adminRumahSakit;
-    const usersResult = await db.query(
-      "SELECT * FROM patients WHERE rumah_sakit = $1 ORDER BY is_pinned DESC, id ASC",
-      [rumahSakit],
-    );
-    const rooms = [];
-    for (const user of usersResult.rows) {
-      const room_id = `${user.rumah_sakit}_${user.id}`;
-      const msgCount = await db.query(
-        "SELECT COUNT(*) as total FROM messages WHERE room_id = $1",
-        [room_id],
-      );
-      rooms.push({
-        id: user.id,
-        nama: user.nama,
-        alamat: user.alamat,
-        nomor_wa: user.nomor_wa,
-        roomId: room_id,
-        isPinned: !!user.is_pinned,
-        totalPesan: parseInt(msgCount.rows[0].total),
-      });
-    }
+    const rooms = await fetchAdminRooms(rumahSakit);
     const unreadRes = await db.query(
       "SELECT room_id, unread_count FROM room_unread WHERE admin_name = $1 AND unread_count > 0",
       [req.session.adminUser],
@@ -2037,6 +2275,16 @@ io.on("connection", (socket) => {
       });
 
       bumpUnread(roomId);
+
+      // Kabari sidebar admin (halaman daftar room) agar room ini naik ke atas
+      // dan pratinjau pesan terakhir ikut diperbarui (real-time).
+      io.to(ADMIN_CHAN(roomHospital(roomId))).emit("room-activity", {
+        roomId,
+        senderName: savedMsg.sender_name,
+        message: savedMsg.message,
+        messageType: savedMsg.message_type,
+        createdAt: savedMsg.created_at,
+      });
 
       // Notifikasi Web Push (best effort; setelah pesan tersimpan).
       sendPushForMessage(id, roomId, savedMsg).catch((e) =>

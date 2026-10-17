@@ -93,18 +93,15 @@
     }
     .chat-back-continue { border: 0; background: var(--primary); color: #fff; }
     .chat-back-continue:hover { background: var(--primary-dark); }
-    .chat-back-new { border: 1px solid var(--border); background: var(--surface); color: var(--text); }
-    .chat-back-new:hover { background: var(--bg); }
     .chat-back-actions button:focus-visible { outline: 3px solid rgba(14, 165, 233, 0.35); outline-offset: 2px; }
   </style>
 </head>
 <body>
   <dialog class="chat-back-dialog" id="chatBackDialog" aria-labelledby="chatBackTitle" aria-describedby="chatBackDescription">
-    <h2 id="chatBackTitle">Keluar dari ruang chat?</h2>
-    <p id="chatBackDescription">Percakapan ini tetap tersimpan. Pilih untuk kembali melanjutkan chat atau membuka formulir pasien baru.</p>
+    <h2 id="chatBackTitle">Sesi Percakapan Aktif</h2>
+    <p id="chatBackDescription">Percakapan Anda tetap tersimpan dengan aman. Klik tombol di bawah untuk melanjutkan chat.</p>
     <div class="chat-back-actions">
       <button type="button" class="chat-back-continue" id="chatBackContinue">Lanjutkan chat</button>
-      <button type="button" class="chat-back-new" id="chatBackNew">Mulai baru</button>
     </div>
   </dialog>
   <div class="chat-header">
@@ -206,10 +203,9 @@
 
     const SESSION_KEY = 'dinkes_chat_session';
 
-    // Tahan navigasi Back pertama agar pasien memilih melanjutkan atau mulai baru.
+    // Tahan navigasi Back agar pasien tetap berada di chat atau memilih melanjutkan.
     const chatBackDialog = document.getElementById('chatBackDialog');
     const chatBackContinue = document.getElementById('chatBackContinue');
-    const chatBackNew = document.getElementById('chatBackNew');
     const chatPageUrl = window.location.href;
     function closeChatBackDialog() {
       if (!chatBackDialog) return;
@@ -231,10 +227,6 @@
     chatBackDialog.addEventListener('cancel', (event) => {
       event.preventDefault();
       closeChatBackDialog();
-    });
-    chatBackNew.addEventListener('click', () => {
-      localStorage.removeItem(SESSION_KEY);
-      window.location.assign('/?startNew=1');
     });
 
     // Simpan data chat pasien agar tetap tersimpan saat refresh/keluar browser

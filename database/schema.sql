@@ -13,9 +13,11 @@ CREATE TABLE IF NOT EXISTS patients (
   created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
--- Jika tabel sudah ada, jalankan ini untuk menambah kolom alamat & nomor WA:
+-- Jika tabel sudah ada, jalankan ini untuk menambah kolom alamat & nomor WA & token:
 -- ALTER TABLE patients ADD COLUMN IF NOT EXISTS alamat TEXT NOT NULL DEFAULT '';
 -- ALTER TABLE patients ADD COLUMN IF NOT EXISTS nomor_wa TEXT NOT NULL DEFAULT '';
+-- ALTER TABLE patients ADD COLUMN IF NOT EXISTS patient_token TEXT;
+-- CREATE UNIQUE INDEX IF NOT EXISTS idx_patients_token ON patients(patient_token) WHERE patient_token IS NOT NULL;
 -- (opsional hapus kolom kelas: ALTER TABLE patients DROP COLUMN IF EXISTS kelas;)
 
 -- 2. Tabel messages untuk menyimpan chat secara permanen
