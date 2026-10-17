@@ -19,14 +19,14 @@ Jika organisasi tetap memerlukan password sementara karena keterbatasan operasio
 
 | Rumah sakit | Email admin | Status pemetaan |
 |---|---|---|
-| RSUD Sunan Kalijaga | ekoandyan@gmail.com | Sesuai nama yang diberikan |
-| RSI Nahdlatul Ulama / RSI NU Demak | yankeslanjutan@gmail.com | Perlu konfirmasi bahwa ini nama yang sama dengan `RSI Nahdlatul Ulama` pada aplikasi |
-| RS Pelita Anugerah | tugasai063@gmail.com | Sesuai nama yang diberikan |
-| **Belum dipastikan** | yankesrujukandkkdemak@gmail.com | Nama rumah sakit yang dikirim adalah “RSUD Sunan Kalijaga” untuk kedua kalinya; aplikasi saat ini memiliki `RSUD Sultan Fatah` sebagai rumah sakit keempat. Jangan tetapkan ke salah satu akun sebelum dikonfirmasi. |
-| RS Hj. Fatimah Sulhan | pscdemak119@gmail.com | Sesuai nama yang diberikan |
-| Charlie Hospital (Demak) | purnamaberlianekoandriantoro@gmail.com | Sesuai nama yang diberikan |
+| RSUD Sunan Kalijaga | igd.rssuka.demak@gmail.com | Ditetapkan |
+| RSI Nahdlatul Ulama / RSI NU Demak | igdrsinudemak@gmail.com | Ditetapkan |
+| RS Pelita Anugerah | adhikaferdiyan123@gmail.com | Ditetapkan |
+| RSUD Sultan Fatah | rsudsulfaigd21@gmail.com | Ditetapkan |
+| RS Hj. Fatimah Sulhan | fatimahsulhan9@gmail.com | Ditetapkan |
+| Charlie Hospital (Demak) | ugdcharliehospitaldemak@gmail.com | Ditetapkan |
 
-**Perlu konfirmasi sebelum provisioning:** apakah alamat `yankesrujukandkkdemak@gmail.com` seharusnya untuk **RSUD Sultan Fatah**? Jangan mengubah atau mengirim kredensial ke alamat ini sampai pemilik proyek mengonfirmasi pemetaannya.
+Pemetaan aktual juga tersimpan di `database/admin-emails.json` (berisi PII, di-gitignore). Email diubah langsung pada kolom `admins.email` per akun (berdasarkan `username`/`rumah_sakit`), tanpa mengubah password.
 
 Sebelum aktivasi, verifikasi bahwa setiap alamat email memang dikelola oleh admin/organisasi yang berhak. Batasi akun admin sesuai rumah sakitnya, dan jangan menerima alamat rumah sakit atau peran admin dari form publik.
 

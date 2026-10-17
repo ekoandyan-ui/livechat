@@ -651,6 +651,66 @@ async function getAdminById(id) {
   return r.rows[0] || null;
 }
 
+// =============================================
+// AUDIT: riwayat tindakan administratif (append-only) + login tracking.
+// JANGAN menulis password/hash/token/secret/isi chat ke tabel audit.
+// =============================================
+const AUDIT_IP_SALT =
+  process.env.AUDIT_IP_SALT || process.env.SESSION_SECRET || "lc-audit-ip";
+
+// Simpan IP sebagai hash (tidak menyimpan IP mentah).
+function hashIp(ip) {
+  if (!ip) return null;
+  return crypto.createHmac("sha256", AUDIT_IP_SALT).update(String(ip)).digest("hex");
+}
+
+function clientIp(req) {
+  return (req && (req.ip || (req.socket && req.socket.remoteAddress))) || null;
+}
+
+// Tulis satu event audit administratif. Tidak boleh menggagalkan alur utama.
+async function auditAdminEvent(ev) {
+  try {
+    const e = ev || {};
+    if (!e.action) return;
+    await db.query(
+      `INSERT INTO admin_audit_events
+         (actor_admin_id, actor_username, actor_role, action, target_type,
+          target_admin_id, target_username, result, reason, metadata, ip_hash)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`,
+      [
+        e.actorId || null,
+        e.actorUsername || null,
+        e.actorRole || null,
+        e.action,
+        e.targetType || null,
+        e.targetId || null,
+        e.targetUsername || null,
+        e.result || "success",
+        e.reason || null,
+        e.metadata ? JSON.stringify(e.metadata) : null,
+        e.ipHash || null,
+      ],
+    );
+  } catch (err) {
+    console.error("Gagal menulis audit admin:", err.message);
+  }
+}
+
+// Catat percobaan login admin (sukses/gagal).
+async function recordAdminLogin(ev) {
+  try {
+    const e = ev || {};
+    await db.query(
+      `INSERT INTO admin_login_events (admin_id, email_attempted, success, reason, ip_hash)
+       VALUES ($1,$2,$3,$4,$5)`,
+      [e.adminId || null, e.email || null, !!e.success, e.reason || null, e.ipHash || null],
+    );
+  } catch (err) {
+    console.error("Gagal menulis login event admin:", err.message);
+  }
+}
+
 // Halaman berisi token: jangan di-cache & jangan bocorkan referrer.
 function noStore(req, res, next) {
   res.set("Cache-Control", "no-store, no-cache, must-revalidate, private");
@@ -669,7 +729,7 @@ async function requireAdmin(req, res, next) {
   }
   try {
     const r = await db.query(
-      "SELECT is_active, session_version FROM admins WHERE id = $1",
+      "SELECT is_active, session_version, role FROM admins WHERE id = $1",
       [req.session.adminId],
     );
     const row = r.rows[0];
@@ -681,9 +741,49 @@ async function requireAdmin(req, res, next) {
     ) {
       return req.session.destroy(() => res.redirect("/admin/login"));
     }
+    // Perubahan peran (role) -> cabut sesi lama. Sesi lama tanpa role
+    // (pra-migrasi) diselaraskan dari DB.
+    if (req.session.adminRole && req.session.adminRole !== row.role) {
+      return req.session.destroy(() => res.redirect("/admin/login"));
+    }
+    if (!req.session.adminRole) req.session.adminRole = row.role;
   } catch (err) {
     console.error("Error requireAdmin:", err.message);
     return res.redirect("/admin/login");
+  }
+  next();
+}
+
+// =============================================
+// MIDDLEWARE: Cek Super Admin (role terverifikasi di server)
+// =============================================
+async function requireSuperAdmin(req, res, next) {
+  if (!req.session || !req.session.isAdmin || !req.session.adminId) {
+    return res.redirect("/admin/login");
+  }
+  try {
+    const r = await db.query(
+      "SELECT is_active, session_version, role FROM admins WHERE id = $1",
+      [req.session.adminId],
+    );
+    const row = r.rows[0];
+    if (
+      !row ||
+      !row.is_active ||
+      row.role !== "super_admin" ||
+      row.session_version !== req.session.adminSessionVersion ||
+      req.session.adminRole !== "super_admin"
+    ) {
+      return res.status(403).render("admin-message", {
+        title: "Akses ditolak",
+        message: "Halaman ini hanya untuk Super Admin.",
+        loginHref: "/admin/login",
+        loginText: "Ke Halaman Login",
+      });
+    }
+  } catch (err) {
+    console.error("Error requireSuperAdmin:", err.message);
+    return res.status(403).send("Akses ditolak.");
   }
   next();
 }
@@ -1053,14 +1153,40 @@ app.post("/admin/login", loginLimiter, loginAccountLimiter, async (req, res) => 
   const email = String((req.body && req.body.email) || "").trim().toLowerCase();
   const password = String((req.body && req.body.password) || "");
   const failKey = email || req.ip || "";
+  const ipHash = hashIp(clientIp(req));
 
   // Jeda progresif sebelum memproses (menghambat percobaan beruntun).
   const wait = loginFailDelay(failKey);
   if (wait > 0) await new Promise((r) => setTimeout(r, wait));
 
-  if (!email || !password) {
+  // Gagal login: pesan generik + catat ke audit/login event (anti-enumerasi
+  // hanya untuk respons; pencatatan internal tetap dilakukan).
+  const failGeneric = async (reason, admin) => {
     noteLoginFailure(failKey);
+    await recordAdminLogin({
+      email,
+      adminId: admin ? admin.id : null,
+      success: false,
+      reason,
+      ipHash,
+    });
+    await auditAdminEvent({
+      action: "admin_login",
+      actorId: admin ? admin.id : null,
+      actorUsername: admin ? admin.username : email,
+      actorRole: admin ? admin.role : null,
+      targetType: "admin",
+      targetId: admin ? admin.id : null,
+      targetUsername: admin ? admin.username : email,
+      result: "failure",
+      reason,
+      ipHash,
+    });
     return res.status(200).render("admin-login", { error: GENERIC_LOGIN_ERROR });
+  };
+
+  if (!email || !password) {
+    return await failGeneric("missing_credentials", null);
   }
 
   try {
@@ -1072,8 +1198,7 @@ app.post("/admin/login", loginLimiter, loginAccountLimiter, async (req, res) => 
     // Akun tak ada / belum aktivasi (is_active=false) / belum punya password
     // -> semua diberi pesan generik yang sama (anti-enumerasi).
     if (!admin || !admin.is_active || !admin.password) {
-      noteLoginFailure(failKey);
-      return res.status(200).render("admin-login", { error: GENERIC_LOGIN_ERROR });
+      return await failGeneric("unknown_or_inactive", admin);
     }
 
     const stored = String(admin.password || "");
@@ -1082,14 +1207,12 @@ app.post("/admin/login", loginLimiter, loginAccountLimiter, async (req, res) => 
     if (!isHashed) {
       // Tidak menerima password plaintext di jalur login.
       console.warn(`Admin ${admin.username} punya password non-hash; login ditolak.`);
-      noteLoginFailure(failKey);
-      return res.status(200).render("admin-login", { error: GENERIC_LOGIN_ERROR });
+      return await failGeneric("password_not_hashed", admin);
     }
 
     const pwOk = bcrypt.compareSync(password, stored);
     if (!pwOk) {
-      noteLoginFailure(failKey);
-      return res.status(200).render("admin-login", { error: GENERIC_LOGIN_ERROR });
+      return await failGeneric("bad_password", admin);
     }
 
     // Login sukses -> regenerasi sesi. Jika gagal, BATALKAN login
@@ -1097,18 +1220,43 @@ app.post("/admin/login", loginLimiter, loginAccountLimiter, async (req, res) => 
     req.session.regenerate((err) => {
       if (err) {
         console.error("Error regenerate session login:", err.message);
+        recordAdminLogin({
+          email,
+          adminId: admin.id,
+          success: false,
+          reason: "session_regenerate_failed",
+          ipHash,
+        });
         return res
           .status(500)
           .render("admin-login", { error: "Gagal memulai sesi. Coba lagi." });
       }
       loginFailures.delete(failKey);
+      const role = admin.role || "hospital_admin";
       req.session.isAdmin = true;
       req.session.adminId = admin.id;
       req.session.adminUser = admin.username;
-      req.session.adminRumahSakit = admin.rumah_sakit;
+      req.session.adminRole = role;
+      req.session.adminRumahSakit = admin.rumah_sakit || null;
       req.session.adminSessionVersion = admin.session_version;
       req.session.csrfToken = crypto.randomBytes(16).toString("hex");
-      res.redirect("/admin");
+      // Catat login sukses + waktu login terakhir.
+      recordAdminLogin({ email, adminId: admin.id, success: true, ipHash });
+      auditAdminEvent({
+        action: "admin_login",
+        actorId: admin.id,
+        actorUsername: admin.username,
+        actorRole: role,
+        targetType: "admin",
+        targetId: admin.id,
+        targetUsername: admin.username,
+        result: "success",
+        ipHash,
+      });
+      db.query("UPDATE admins SET last_login_at = NOW() WHERE id = $1", [admin.id]).catch(
+        () => {},
+      );
+      res.redirect(role === "super_admin" ? "/super-admin" : "/admin");
     });
   } catch (err) {
     console.error("Error login:", err.message);
@@ -1224,6 +1372,17 @@ app.post("/admin/activate", activateLimiter, noStore, async (req, res) => {
       "UPDATE admin_tokens SET used_at = NOW() WHERE admin_id = $1 AND used_at IS NULL",
       [admin.id],
     );
+    auditAdminEvent({
+      action: "admin_activate",
+      targetType: "admin",
+      targetId: admin.id,
+      targetUsername: admin.username,
+      actorId: admin.id,
+      actorUsername: admin.username,
+      actorRole: admin.role,
+      result: "success",
+      ipHash: hashIp(clientIp(req)),
+    });
     res.redirect("/admin/login?activated=1");
   } catch (err) {
     console.error("Error activate POST:", err.message);
@@ -1267,6 +1426,18 @@ app.post("/admin/forgot-password", forgotLimiter, noStore, async (req, res) => {
         if (out.skipped && !IS_PRODUCTION)
           console.log(`[DEV] Password baru untuk ${admin.email}: ${newPassword}`);
         if (out.error) console.error(`Gagal kirim password baru ke ${admin.email}:`, out.error);
+        auditAdminEvent({
+          action: "admin_password_reset_request",
+          targetType: "admin",
+          targetId: admin.id,
+          targetUsername: admin.username,
+          actorId: admin.id,
+          actorUsername: admin.username,
+          actorRole: admin.role,
+          result: "success",
+          reason: "forgot_password",
+          ipHash: hashIp(clientIp(req)),
+        });
       }
     }
   } catch (err) {
@@ -1327,6 +1498,18 @@ app.post("/admin/reset-password", resetLimiter, noStore, async (req, res) => {
       [admin.id],
     );
     mailer.sendPasswordChangedEmail(admin.email).catch(() => {});
+    auditAdminEvent({
+      action: "admin_password_reset",
+      targetType: "admin",
+      targetId: admin.id,
+      targetUsername: admin.username,
+      actorId: admin.id,
+      actorUsername: admin.username,
+      actorRole: admin.role,
+      result: "success",
+      reason: "reset_link",
+      ipHash: hashIp(clientIp(req)),
+    });
     res.redirect("/admin/login?reset=1");
   } catch (err) {
     console.error("Error reset POST:", err.message);
@@ -1361,8 +1544,21 @@ app.post(
       const renderForm = (error) =>
         res.status(200).render("admin-change-password", { error, done: false });
 
-      if (!bcrypt.compareSync(current, String(admin.password)))
+      if (!bcrypt.compareSync(current, String(admin.password))) {
+        auditAdminEvent({
+          action: "admin_password_change",
+          targetType: "admin",
+          targetId: admin.id,
+          targetUsername: admin.username,
+          actorId: admin.id,
+          actorUsername: admin.username,
+          actorRole: req.session.adminRole,
+          result: "denied",
+          reason: "bad_current_password",
+          ipHash: hashIp(clientIp(req)),
+        });
         return renderForm("Password saat ini salah.");
+      }
       if (pw !== pw2) return renderForm("Konfirmasi password tidak sama.");
       const perr = validatePasswordPolicy(pw, {
         email: admin.email,
@@ -1383,6 +1579,17 @@ app.post(
       // Sesi ini tetap hidup; sesi lain otomatis dicabut (versi berbeda).
       req.session.adminSessionVersion = upd.rows[0].session_version;
       mailer.sendPasswordChangedEmail(admin.email).catch(() => {});
+      auditAdminEvent({
+        action: "admin_password_change",
+        targetType: "admin",
+        targetId: admin.id,
+        targetUsername: admin.username,
+        actorId: admin.id,
+        actorUsername: admin.username,
+        actorRole: req.session.adminRole,
+        result: "success",
+        ipHash: hashIp(clientIp(req)),
+      });
       res.status(200).render("admin-change-password", { error: null, done: true });
     } catch (err) {
       console.error("Error change-password:", err.message);
@@ -1394,8 +1601,39 @@ app.post(
 );
 
 app.get("/admin/logout", (req, res) => {
+  if (req.session && req.session.isAdmin && req.session.adminId) {
+    auditAdminEvent({
+      action: "admin_logout",
+      actorId: req.session.adminId,
+      actorUsername: req.session.adminUser,
+      actorRole: req.session.adminRole,
+      result: "success",
+      ipHash: hashIp(clientIp(req)),
+    });
+  }
   req.session.destroy();
   res.redirect("/admin/login");
+});
+
+// =============================================
+// ROUTE: Super Admin (administratif global)
+// Hanya role super_admin. Dashboard pemantauan akun admin menyusul;
+// untuk saat ini menjadi halaman arahan setelah login.
+// =============================================
+app.get("/super-admin", requireSuperAdmin, noStore, async (req, res) => {
+  let events = [];
+  try {
+    const r = await db.query(
+      `SELECT action, actor_username, actor_role, target_username, result, reason, created_at
+         FROM admin_audit_events
+        ORDER BY created_at DESC
+        LIMIT 20`,
+    );
+    events = r.rows;
+  } catch (err) {
+    console.error("Error memuat audit super-admin:", err.message);
+  }
+  res.render("super-admin", { adminUser: req.session.adminUser, events });
 });
 
 // =============================================
