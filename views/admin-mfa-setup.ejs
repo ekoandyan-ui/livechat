@@ -1,0 +1,25 @@
+<%- include('partials/admin-auth-head', { title: 'Aktifkan MFA' }) %>
+    <h2>AKTIFKAN MFA</h2>
+    <p class="subtitle">Pindai QR dengan aplikasi autentikator (Google Authenticator, Authy, dll.)</p>
+    <% if (typeof error !== 'undefined' && error) { %>
+      <div class="alert alert-danger"><%= error %></div>
+    <% } %>
+    <% if (qr) { %>
+      <div style="text-align:center;margin-bottom:12px">
+        <img src="<%= qr %>" alt="QR MFA" width="220" height="220" />
+      </div>
+    <% } %>
+    <p style="font-size:12px;color:var(--subtle);margin-bottom:6px">
+      Tidak bisa memindai? Masukkan kunci ini secara manual:
+    </p>
+    <div style="font-family:monospace;word-break:break-all;background:var(--primary-light);padding:10px;border-radius:8px;font-size:13px">
+      <%= secret %>
+    </div>
+    <form method="POST" action="/admin/mfa/setup" style="margin-top:16px">
+      <input type="hidden" name="_csrf" value="<%= csrfToken %>" />
+      <label class="form-label" for="code">Masukkan kode 6 digit dari aplikasi</label>
+      <input class="form-control" id="code" name="code" inputmode="numeric" maxlength="6" placeholder="000000" autocomplete="one-time-code" autofocus />
+      <button type="submit" class="btn btn-login">AKTIFKAN</button>
+    </form>
+    <a class="back-link" href="/admin/logout">Batal</a>
+<%- include('partials/admin-auth-foot') %>

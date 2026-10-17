@@ -229,3 +229,46 @@ DROP TRIGGER IF EXISTS trg_admin_login_events_immutable ON admin_login_events;
 CREATE TRIGGER trg_admin_login_events_immutable
   BEFORE UPDATE OR DELETE ON admin_login_events
   FOR EACH ROW EXECUTE FUNCTION admin_audit_immutable();
+
+-- 16. MFA (TOTP) + izin baca data pasien (Tahap 3)
+-- mfa_secret      : secret TOTP, DIENKRIPSI di aplikasi (AES-256-GCM), bukan plaintext.
+-- mfa_enabled     : TRUE setelah enrollment terverifikasi.
+-- mfa_last_step   : nomor step TOTP terakhir yang diterima (anti-replay).
+-- patient_data_read: permission terpisah, HANYA untuk super_admin; default FALSE.
+-- Migrasi: lihat database/migrate-admin-mfa.js
+ALTER TABLE admins ADD COLUMN IF NOT EXISTS mfa_secret TEXT;
+ALTER TABLE admins ADD COLUMN IF NOT EXISTS mfa_enabled BOOLEAN NOT NULL DEFAULT FALSE;
+ALTER TABLE admins ADD COLUMN IF NOT EXISTS mfa_enrolled_at TIMESTAMPTZ;
+ALTER TABLE admins ADD COLUMN IF NOT EXISTS mfa_last_step BIGINT;
+ALTER TABLE admins ADD COLUMN IF NOT EXISTS patient_data_read BOOLEAN NOT NULL DEFAULT FALSE;
+DO $$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'admins_patient_read_scope_chk') THEN
+    ALTER TABLE admins ADD CONSTRAINT admins_patient_read_scope_chk
+      CHECK (patient_data_read = FALSE OR role = 'super_admin');
+  END IF;
+END $$;
+
+-- Kode pemulihan MFA: hanya HASH yang disimpan; sekali pakai (used_at).
+CREATE TABLE IF NOT EXISTS admin_mfa_recovery_codes (
+  id SERIAL PRIMARY KEY,
+  admin_id INTEGER NOT NULL REFERENCES admins(id) ON DELETE CASCADE,
+  code_hash TEXT NOT NULL,
+  used_at TIMESTAMPTZ,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_mfa_recovery_admin ON admin_mfa_recovery_codes(admin_id);
+
+-- Sesi izin baca data pasien: beralasan (reason), berjangka waktu (expires_at),
+-- dapat dicabut (revoked_at). Read-only; tidak memberi hak tulis/ekspor.
+CREATE TABLE IF NOT EXISTS admin_access_sessions (
+  id SERIAL PRIMARY KEY,
+  admin_id INTEGER NOT NULL REFERENCES admins(id) ON DELETE CASCADE,
+  permission TEXT NOT NULL,
+  reason TEXT NOT NULL,
+  scope TEXT,
+  granted_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  expires_at TIMESTAMPTZ NOT NULL,
+  revoked_at TIMESTAMPTZ,
+  ip_hash TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_access_sessions_admin ON admin_access_sessions(admin_id, permission, expires_at DESC);

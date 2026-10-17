@@ -1,0 +1,91 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="csrf-token" content="<%= csrfToken %>" />
+  <title>Akses Baca Data Pasien - Super Admin</title>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet" />
+  <style>
+    :root { --primary: #0ea5e9; --primary-dark: #0284c7; --bg: #f8fafc; --surface: #fff; --text: #0f172a; --subtle: #64748b; --border: rgba(0,0,0,0.1); }
+    * { box-sizing: border-box; }
+    body { background: var(--bg); color: var(--text); margin: 0; font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+    header { background: var(--surface); border-bottom: 1px solid var(--border); padding: 12px 20px; display: flex; align-items: center; gap: 12px; flex-wrap: wrap; position: sticky; top: 0; z-index: 10; }
+    header h1 { font-size: 17px; margin: 0; color: var(--primary); font-weight: 700; }
+    header h1 small { display: block; font-size: 11px; color: var(--subtle); font-weight: 500; }
+    .who { margin-left: auto; font-size: 12px; color: var(--subtle); }
+    .hdr-actions { display: flex; gap: 8px; }
+    main { max-width: 720px; margin: 26px auto 40px; padding: 0 20px; }
+    .card2 { background: var(--surface); border: 1px solid var(--border); border-radius: 14px; padding: 20px; box-shadow: 0 6px 24px rgba(0,0,0,0.05); }
+    h2 { font-size: 16px; margin: 0 0 6px; }
+    .sub { color: var(--subtle); font-size: 13px; margin-bottom: 18px; }
+    .btnx { display: inline-block; border: 1px solid transparent; border-radius: 9px; padding: 10px 14px; font-weight: 600; text-decoration: none; cursor: pointer; }
+    .btnx.primary { background: var(--primary); color: #fff; }
+    .btnx.primary:hover { background: var(--primary-dark); color: #fff; }
+    .btnx.ghost { border-color: var(--border); color: var(--text); background: var(--surface); }
+    textarea.form-control { min-height: 90px; }
+    .meta { font-size: 13px; color: var(--subtle); background: #f1f5f9; border-radius: 10px; padding: 12px 14px; margin-bottom: 16px; }
+    .meta b { color: var(--text); }
+    .warn { background: #fef9c3; border: 1px solid #fde047; border-radius: 10px; padding: 10px 12px; font-size: 12px; margin-bottom: 16px; }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>Akses Baca Data Pasien<small>Super Admin &middot; baca-saja</small></h1>
+    <span class="who"><%= adminUser %> &middot; <b>SUPER ADMIN</b></span>
+    <div class="hdr-actions">
+      <a class="btnx ghost" href="/super-admin">Dashboard</a>
+      <a class="btnx ghost" href="/admin/logout">Logout</a>
+    </div>
+  </header>
+
+  <main>
+    <% if (!canRead) { %>
+      <div class="card2">
+        <h2>Izin belum diberikan</h2>
+        <p class="sub">
+          Permission <code>patient_data_read</code> belum aktif pada akun ini.
+          Izin diberikan terpisah oleh operator melalui proses provisioning yang disetujui.
+        </p>
+        <a class="btnx ghost" href="/super-admin">Kembali</a>
+      </div>
+    <% } else { %>
+      <div class="card2">
+        <h2>Sesi akses baca data pasien</h2>
+        <p class="sub">Akses lintas rumah sakit bersifat baca-saja, wajib ber-alasan, dan dicatat dalam audit.</p>
+
+        <div class="warn">
+          Anda tidak dapat mengubah, menghapus, mengirim pesan sebagai petugas, atau mengekspor massal
+          dari jalur ini. Setiap pencarian dan pembukaan dicatat.
+        </div>
+
+        <% if (error) { %><div class="alert alert-danger py-2" style="font-size:13px"><%= error %></div><% } %>
+
+        <% if (session) { %>
+          <div class="meta">
+            <div><b>Sesi aktif</b></p>
+            <div>Alasan: <b><%= session.reason %></b></div>
+            <div>Mulai: <%= new Date(session.granted_at).toLocaleString('id-ID') %></div>
+            <div>Berlaku sampai: <b><%= new Date(session.expires_at).toLocaleString('id-ID') %></b></p>
+          </div>
+          <form method="POST" action="/super-admin/patient-access/end" style="margin-bottom:20px">
+            <input type="hidden" name="_csrf" value="<%= csrfToken %>" />
+            <button type="submit" class="btnx ghost">Akhiri Sesi Akses</button>
+          </form>
+        <% } else { %>
+          <div class="meta">Belum ada sesi akses aktif.</div>
+        <% } %>
+
+        <h2 style="margin-top:18px">Mulai sesi baru (<%= minutes %> menit)</h2>
+        <form method="POST" action="/super-admin/patient-access">
+          <input type="hidden" name="_csrf" value="<%= csrfToken %>" />
+          <label class="form-label" for="reason">Alasan akses (wajib, minimal 10 karakter)</label>
+          <textarea class="form-control mb-2" id="reason" name="reason" maxlength="500" placeholder="Contoh: Tindak lanjut laporan keluhan layanan RS X, tiket #123"></textarea>
+          <% if (error) { %><div class="text-danger" style="font-size:13px;margin-bottom:8px"><%= error %></div><% } %>
+          <button type="submit" class="btnx primary">Mulai Sesi Akses</button>
+        </form>
+      </div>
+    <% } %>
+  </main>
+</body>
+</html>

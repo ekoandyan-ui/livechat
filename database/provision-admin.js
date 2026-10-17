@@ -14,6 +14,8 @@
 // Opsi:
 //   --role <hospital_admin|super_admin>  default: hospital_admin
 //   --super                              alias singkat untuk --role super_admin
+//   --patient-read                       (khusus super_admin) beri permission
+//                                        patient_data_read (baca-saja, beralasan, diaudit)
 //   --send   kirim email aktivasi (bila SMTP dikonfigurasi). Bila tidak,
 //            tautan aktivasi dicetak ke console.
 //
@@ -30,6 +32,7 @@ function parseArgs(argv) {
     const a = argv[i];
     if (a === "--send") out.send = true;
     else if (a === "--super") out.super = true;
+    else if (a === "--patient-read") out.patientRead = true;
     else if (a.startsWith("--")) out[a.slice(2)] = argv[++i];
   }
   return out;
@@ -78,10 +81,16 @@ async function main() {
     }
 
     const ins = await pool.query(
-      `INSERT INTO admins (username, password, email, rumah_sakit, role, is_active, session_version)
-       VALUES ($1, NULL, $2, $3, $4, FALSE, 0)
+      `INSERT INTO admins (username, password, email, rumah_sakit, role, patient_data_read, is_active, session_version)
+       VALUES ($1, NULL, $2, $3, $4, $5, FALSE, 0)
        RETURNING id`,
-      [username, email, needsRs ? rumahSakit : null, role],
+      [
+        username,
+        email,
+        needsRs ? rumahSakit : null,
+        role,
+        role === "super_admin" ? !!args.patientRead : false,
+      ],
     );
     const adminId = ins.rows[0].id;
 

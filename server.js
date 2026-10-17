@@ -15,6 +15,8 @@ const fs = require("fs");
 const path = require("path");
 const mailer = require("./mailer");
 const push = require("./push");
+const totp = require("./totp");
+const QRCode = require("qrcode");
 
 const app = express();
 const http = require("http");
@@ -721,72 +723,250 @@ function noStore(req, res, next) {
 }
 
 // =============================================
-// MIDDLEWARE: Cek login admin (validasi sesi terkini)
+// MFA: enkripsi secret di penyimpanan (AES-256-GCM).
+// Kunci dari MFA_ENC_KEY (disarankan) atau turunan SESSION_SECRET.
+// Format tersimpan: v1.<ivB64>.<tagB64>.<ciphertextB64>
 // =============================================
-async function requireAdmin(req, res, next) {
-  if (!req.session || !req.session.isAdmin || !req.session.adminId) {
-    return res.redirect("/admin/login");
+const MFA_KEY = crypto
+  .createHash("sha256")
+  .update(String(process.env.MFA_ENC_KEY || SESSION_SECRET))
+  .digest();
+
+if (IS_PRODUCTION && !process.env.MFA_ENC_KEY) {
+  console.warn(
+    "[PERINGATAN] MFA_ENC_KEY tidak diset -> enkripsi secret MFA memakai turunan SESSION_SECRET.",
+  );
+}
+
+function encryptSecret(plain) {
+  if (plain == null) return null;
+  const iv = crypto.randomBytes(12);
+  const cipher = crypto.createCipheriv("aes-256-gcm", MFA_KEY, iv);
+  const ct = Buffer.concat([cipher.update(String(plain), "utf8"), cipher.final()]);
+  const tag = cipher.getAuthTag();
+  return ["v1", iv.toString("base64"), tag.toString("base64"), ct.toString("base64")].join(".");
+}
+
+function decryptSecret(enc) {
+  if (!enc) return null;
+  const parts = String(enc).split(".");
+  if (parts.length !== 4 || parts[0] !== "v1") return null;
+  try {
+    const iv = Buffer.from(parts[1], "base64");
+    const tag = Buffer.from(parts[2], "base64");
+    const ct = Buffer.from(parts[3], "base64");
+    const d = crypto.createDecipheriv("aes-256-gcm", MFA_KEY, iv);
+    d.setAuthTag(tag);
+    return Buffer.concat([d.update(ct), d.final()]).toString("utf8");
+  } catch (err) {
+    return null;
   }
+}
+
+// =============================================
+// Sesi izin baca data pasien (read-only, beralasan, berjangka waktu).
+// =============================================
+async function getActiveAccessSession(adminId, permission) {
+  const r = await db.query(
+    `SELECT * FROM admin_access_sessions
+      WHERE admin_id = $1 AND permission = $2
+        AND revoked_at IS NULL AND expires_at > NOW()
+      ORDER BY expires_at DESC LIMIT 1`,
+    [adminId, permission],
+  );
+  return r.rows[0] || null;
+}
+
+// =============================================
+// MIDDLEWARE: pemuat status admin terpusat.
+// Memvalidasi is_active, session_version, role, dan status MFA terhadap DB.
+// =============================================
+async function loadAdminSession(req) {
+  const s = req.session;
+  if (!s) return { ok: false, reason: "no_session", redirect: "/admin/login" };
+  if (!s.isAdmin || !s.adminId) {
+    if (s.mfaPending && s.pendingAdminId) {
+      return { ok: false, reason: "mfa_pending", redirect: "/admin/mfa" };
+    }
+    return { ok: false, reason: "no_session", redirect: "/admin/login" };
+  }
+  let row;
   try {
     const r = await db.query(
-      "SELECT is_active, session_version, role FROM admins WHERE id = $1",
-      [req.session.adminId],
+      `SELECT id, username, email, role, rumah_sakit, is_active, session_version,
+              mfa_enabled, patient_data_read
+         FROM admins WHERE id = $1`,
+      [s.adminId],
     );
-    const row = r.rows[0];
-    // Akun nonaktif / versi sesi berubah (password diubah) -> cabut sesi.
-    if (
-      !row ||
-      !row.is_active ||
-      row.session_version !== req.session.adminSessionVersion
-    ) {
-      return req.session.destroy(() => res.redirect("/admin/login"));
-    }
-    // Perubahan peran (role) -> cabut sesi lama. Sesi lama tanpa role
-    // (pra-migrasi) diselaraskan dari DB.
-    if (req.session.adminRole && req.session.adminRole !== row.role) {
-      return req.session.destroy(() => res.redirect("/admin/login"));
-    }
-    if (!req.session.adminRole) req.session.adminRole = row.role;
+    row = r.rows[0];
   } catch (err) {
-    console.error("Error requireAdmin:", err.message);
-    return res.redirect("/admin/login");
+    console.error("Error loadAdminSession:", err.message);
+    return { ok: false, reason: "db_error", redirect: "/admin/login" };
   }
+  // Akun nonaktif / versi sesi berubah -> cabut sesi.
+  if (!row || !row.is_active || row.session_version !== s.adminSessionVersion) {
+    return { ok: false, reason: "revoked", destroy: true, redirect: "/admin/login" };
+  }
+  // Perubahan role -> cabut sesi lama.
+  if (s.adminRole && s.adminRole !== row.role) {
+    return { ok: false, reason: "role_changed", destroy: true, redirect: "/admin/login" };
+  }
+  if (!s.adminRole) s.adminRole = row.role;
+  // Super Admin WAJIB MFA sebelum hak administratif dipakai.
+  if (row.role === "super_admin" && !row.mfa_enabled) {
+    return { ok: false, reason: "mfa_setup_required", redirect: "/admin/mfa/setup" };
+  }
+  // Akun dengan MFA aktif harus sudah melewati verifikasi pada sesi ini.
+  if (row.mfa_enabled && !s.mfaVerified) {
+    return { ok: false, reason: "mfa_required", redirect: "/admin/mfa" };
+  }
+  return { ok: true, row };
+}
+
+function denyOrRedirect(req, res, result) {
+  const dest = (result && result.redirect) || "/admin/login";
+  if (result && result.destroy && req.session) {
+    return req.session.destroy(() => res.redirect(dest));
+  }
+  return res.redirect(dest);
+}
+
+// =============================================
+// MIDDLEWARE: Cek login admin rumah sakit (scope per-RS).
+// Super Admin TIDAK memakai route rumah sakit.
+// =============================================
+async function requireAdmin(req, res, next) {
+  const r = await loadAdminSession(req);
+  if (!r.ok) return denyOrRedirect(req, res, r);
+  if (r.row.role === "super_admin") {
+    return res.status(403).render("admin-message", {
+      title: "Akses ditolak",
+      message: "Halaman ini untuk admin rumah sakit, bukan Super Admin.",
+      loginHref: "/super-admin",
+      loginText: "Ke Dashboard Super Admin",
+    });
+  }
+  req.admin = r.row;
   next();
 }
 
 // =============================================
-// MIDDLEWARE: Cek Super Admin (role terverifikasi di server)
+// MIDDLEWARE: Cek Super Admin (role terverifikasi di server).
 // =============================================
 async function requireSuperAdmin(req, res, next) {
-  if (!req.session || !req.session.isAdmin || !req.session.adminId) {
-    return res.redirect("/admin/login");
+  const r = await loadAdminSession(req);
+  if (!r.ok) return denyOrRedirect(req, res, r);
+  if (r.row.role !== "super_admin") {
+    return res.status(403).render("admin-message", {
+      title: "Akses ditolak",
+      message: "Halaman ini hanya untuk Super Admin.",
+      loginHref: "/admin/login",
+      loginText: "Ke Halaman Login",
+    });
   }
-  try {
-    const r = await db.query(
-      "SELECT is_active, session_version, role FROM admins WHERE id = $1",
-      [req.session.adminId],
-    );
-    const row = r.rows[0];
-    if (
-      !row ||
-      !row.is_active ||
-      row.role !== "super_admin" ||
-      row.session_version !== req.session.adminSessionVersion ||
-      req.session.adminRole !== "super_admin"
-    ) {
-      return res.status(403).render("admin-message", {
-        title: "Akses ditolak",
-        message: "Halaman ini hanya untuk Super Admin.",
-        loginHref: "/admin/login",
-        loginText: "Ke Halaman Login",
-      });
-    }
-  } catch (err) {
-    console.error("Error requireSuperAdmin:", err.message);
-    return res.status(403).send("Akses ditolak.");
-  }
+  req.admin = r.row;
   next();
 }
+
+// =============================================
+// MIDDLEWARE: Route tingkat akun (semua role yang login & MFA tuntas).
+// Dipakai untuk ganti password, MFA, logout-adjacent, dll.
+// =============================================
+async function requireAccount(req, res, next) {
+  const r = await loadAdminSession(req);
+  if (!r.ok) return denyOrRedirect(req, res, r);
+  req.admin = r.row;
+  next();
+}
+
+// =============================================
+// MIDDLEWARE: Step-up authentication.
+// Untuk tindakan sensitif: wajib verifikasi MFA yang relatif baru.
+// Bila akun tidak memakai MFA, step-up dilewati (kebijakan Tahap 3).
+// =============================================
+function requireRecentMfa(maxMs = 15 * 60 * 1000) {
+  return async (req, res, next) => {
+    const r = await loadAdminSession(req);
+    if (!r.ok) return denyOrRedirect(req, res, r);
+    req.admin = r.row;
+    if (!r.row.mfa_enabled) return next();
+    const at = req.session.mfaVerifiedAt || 0;
+    if (Date.now() - at <= maxMs) return next();
+    const dest =
+      req.method === "GET" && req.originalUrl ? req.originalUrl : "/admin";
+    return res.redirect("/admin/mfa?stepup=1&next=" + encodeURIComponent(dest));
+  };
+}
+
+// =============================================
+// SESI: bikin sesi admin penuh (setelah password / setelah MFA), atau
+// sesi "pending MFA" (baru lolos password, belum berhak).
+// WAJIB regenerate untuk mencegah session fixation.
+// =============================================
+function establishAdminSession(req, res, admin) {
+  return new Promise((resolve) => {
+    req.session.regenerate((err) => {
+      if (err) {
+        console.error("Error regenerate session login:", err.message);
+        return resolve(false);
+      }
+      const role = admin.role || "hospital_admin";
+      req.session.isAdmin = true;
+      req.session.adminId = admin.id;
+      req.session.adminUser = admin.username;
+      req.session.adminRole = role;
+      req.session.adminRumahSakit = admin.rumah_sakit || null;
+      req.session.adminSessionVersion = admin.session_version;
+      req.session.mfaVerified = true;
+      req.session.mfaVerifiedAt = Date.now();
+      req.session.csrfToken = crypto.randomBytes(16).toString("hex");
+      req.session.save(() => resolve(true));
+    });
+  });
+}
+
+function beginMfaPending(req, res, admin, returnTo) {
+  return new Promise((resolve) => {
+    req.session.regenerate((err) => {
+      if (err) {
+        console.error("Error regenerate session MFA:", err.message);
+        return resolve(false);
+      }
+      req.session.mfaPending = true;
+      req.session.pendingAdminId = admin.id;
+      req.session.pendingUsername = admin.username;
+      req.session.pendingEmail = admin.email || null;
+      req.session.pendingRole = admin.role || "hospital_admin";
+      req.session.pendingRumahSakit = admin.rumah_sakit || null;
+      req.session.pendingSessionVersion = admin.session_version;
+      req.session.pendingReturnTo = returnTo || null;
+      req.session.csrfToken = crypto.randomBytes(16).toString("hex");
+      req.session.save(() => resolve(true));
+    });
+  });
+}
+
+// Catat login BERHASIL (dipanggil setelah MFA tuntas / akun tanpa MFA).
+function onAdminLoginSuccess(req, admin) {
+  const ipHash = hashIp(clientIp(req));
+  const role = admin.role || "hospital_admin";
+  recordAdminLogin({ email: admin.email || null, adminId: admin.id, success: true, ipHash });
+  auditAdminEvent({
+    action: "admin_login",
+    actorId: admin.id,
+    actorUsername: admin.username,
+    actorRole: role,
+    targetType: "admin",
+    targetId: admin.id,
+    targetUsername: admin.username,
+    result: "success",
+    ipHash,
+  });
+  db.query("UPDATE admins SET last_login_at = NOW() WHERE id = $1", [admin.id]).catch(
+    () => {},
+  );
+}
+
 
 // =============================================
 // ROUTE: Test Database Connection
@@ -1215,11 +1395,14 @@ app.post("/admin/login", loginLimiter, loginAccountLimiter, async (req, res) => 
       return await failGeneric("bad_password", admin);
     }
 
-    // Login sukses -> regenerasi sesi. Jika gagal, BATALKAN login
-    // (jangan memberikan hak admin).
-    req.session.regenerate((err) => {
-      if (err) {
-        console.error("Error regenerate session login:", err.message);
+    // Login sukses (password benar) -> tentukan langkah berikut.
+    // Akun dengan MFA aktif (atau Super Admin, yang WAJIB MFA) harus
+    // melewati verifikasi MFA sebelum mendapat hak admin.
+    const role = admin.role || "hospital_admin";
+    if (admin.mfa_enabled || role === "super_admin") {
+      const dest = admin.mfa_enabled ? "/admin/mfa" : "/admin/mfa/setup";
+      const okPending = await beginMfaPending(req, res, admin, null);
+      if (!okPending) {
         recordAdminLogin({
           email,
           adminId: admin.id,
@@ -1231,19 +1414,8 @@ app.post("/admin/login", loginLimiter, loginAccountLimiter, async (req, res) => 
           .status(500)
           .render("admin-login", { error: "Gagal memulai sesi. Coba lagi." });
       }
-      loginFailures.delete(failKey);
-      const role = admin.role || "hospital_admin";
-      req.session.isAdmin = true;
-      req.session.adminId = admin.id;
-      req.session.adminUser = admin.username;
-      req.session.adminRole = role;
-      req.session.adminRumahSakit = admin.rumah_sakit || null;
-      req.session.adminSessionVersion = admin.session_version;
-      req.session.csrfToken = crypto.randomBytes(16).toString("hex");
-      // Catat login sukses + waktu login terakhir.
-      recordAdminLogin({ email, adminId: admin.id, success: true, ipHash });
       auditAdminEvent({
-        action: "admin_login",
+        action: "admin_mfa_challenge",
         actorId: admin.id,
         actorUsername: admin.username,
         actorRole: role,
@@ -1251,13 +1423,29 @@ app.post("/admin/login", loginLimiter, loginAccountLimiter, async (req, res) => 
         targetId: admin.id,
         targetUsername: admin.username,
         result: "success",
+        reason: admin.mfa_enabled ? "challenge" : "setup_required",
         ipHash,
       });
-      db.query("UPDATE admins SET last_login_at = NOW() WHERE id = $1", [admin.id]).catch(
-        () => {},
-      );
-      res.redirect(role === "super_admin" ? "/super-admin" : "/admin");
-    });
+      return res.redirect(dest);
+    }
+
+    // Akun tanpa MFA: langsung sesi penuh.
+    loginFailures.delete(failKey);
+    const okSession = await establishAdminSession(req, res, admin);
+    if (!okSession) {
+      recordAdminLogin({
+        email,
+        adminId: admin.id,
+        success: false,
+        reason: "session_regenerate_failed",
+        ipHash,
+      });
+      return res
+        .status(500)
+        .render("admin-login", { error: "Gagal memulai sesi. Coba lagi." });
+    }
+    onAdminLoginSuccess(req, admin);
+    res.redirect(role === "super_admin" ? "/super-admin" : "/admin");
   } catch (err) {
     console.error("Error login:", err.message);
     res.status(500).render("admin-login", { error: "Terjadi kesalahan server." });
@@ -1523,13 +1711,18 @@ app.post("/admin/reset-password", resetLimiter, noStore, async (req, res) => {
 });
 
 // ---- Ganti password (butuh login) ----
-app.get("/admin/change-password", requireAdmin, noStore, (req, res) => {
-  res.render("admin-change-password", { error: null, done: false });
+app.get("/admin/change-password", requireAccount, noStore, (req, res) => {
+  res.render("admin-change-password", {
+    error: null,
+    done: false,
+    mfaEnabled: !!req.admin.mfa_enabled,
+    isSuper: req.admin.role === "super_admin",
+  });
 });
 
 app.post(
   "/admin/change-password",
-  requireAdmin,
+  requireAccount,
   changePwLimiter,
   noStore,
   async (req, res) => {
@@ -1542,7 +1735,12 @@ app.post(
         return res.redirect("/admin/login");
       }
       const renderForm = (error) =>
-        res.status(200).render("admin-change-password", { error, done: false });
+        res.status(200).render("admin-change-password", {
+          error,
+          done: false,
+          mfaEnabled: !!req.admin.mfa_enabled,
+          isSuper: req.admin.role === "super_admin",
+        });
 
       if (!bcrypt.compareSync(current, String(admin.password))) {
         auditAdminEvent({
@@ -1590,15 +1788,422 @@ app.post(
         result: "success",
         ipHash: hashIp(clientIp(req)),
       });
-      res.status(200).render("admin-change-password", { error: null, done: true });
+      res.status(200).render("admin-change-password", {
+        error: null,
+        done: true,
+        mfaEnabled: !!req.admin.mfa_enabled,
+        isSuper: req.admin.role === "super_admin",
+      });
     } catch (err) {
       console.error("Error change-password:", err.message);
-      res
-        .status(500)
-        .render("admin-change-password", { error: "Terjadi kesalahan server.", done: false });
+      res.status(500).render("admin-change-password", {
+        error: "Terjadi kesalahan server.",
+        done: false,
+        mfaEnabled: !!req.admin.mfa_enabled,
+        isSuper: req.admin.role === "super_admin",
+      });
     }
   },
 );
+
+// =============================================
+// ROUTE: MFA (TOTP) — verifikasi, enrollment, kode pemulihan (Tahap 3)
+// =============================================
+const mfaLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  limit: 20,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: "Terlalu banyak percobaan. Coba lagi nanti." },
+  ...makeStoreOpts(),
+});
+
+// Cek kode pemulihan (sekali pakai). Hanya hash yang dibandingkan.
+async function verifyRecoveryCode(adminId, code) {
+  const norm = totp.normalizeRecoveryCode(code);
+  if (norm.length < 8) return false;
+  const r = await db.query(
+    "SELECT id, code_hash FROM admin_mfa_recovery_codes WHERE admin_id = $1 AND used_at IS NULL",
+    [adminId],
+  );
+  for (const row of r.rows) {
+    if (bcrypt.compareSync(norm, row.code_hash)) {
+      const upd = await db.query(
+        "UPDATE admin_mfa_recovery_codes SET used_at = NOW() WHERE id = $1 AND used_at IS NULL RETURNING id",
+        [row.id],
+      );
+      return upd.rows.length === 1;
+    }
+  }
+  return false;
+}
+
+function safeNext(v, fallback) {
+  const s = String(v || "");
+  return /^\/[^/]/.test(s) ? s : fallback;
+}
+
+// Resolve admin + mode ("stepup" bila sudah login penuh, "login" bila pending).
+async function resolveMfaContext(req) {
+  if (req.session && req.session.isAdmin && req.session.adminId) {
+    const admin = await getAdminById(req.session.adminId);
+    return { admin, mode: "stepup" };
+  }
+  if (req.session && req.session.mfaPending && req.session.pendingAdminId) {
+    const admin = await getAdminById(req.session.pendingAdminId);
+    return { admin, mode: "login" };
+  }
+  return { admin: null, mode: null };
+}
+
+// ---- Halaman tantangan MFA (login kedua / step-up) ----
+app.get("/admin/mfa", noStore, async (req, res) => {
+  const { admin, mode } = await resolveMfaContext(req);
+  if (!admin || !admin.is_active) return res.redirect("/admin/login");
+  if (!admin.mfa_enabled) return res.redirect("/admin/mfa/setup");
+  res.render("admin-mfa", {
+    error: null,
+    mode,
+    next: mode === "stepup" ? safeNext(req.query.next, "/admin") : req.session.pendingReturnTo || null,
+    username: admin.username,
+  });
+});
+
+app.post("/admin/mfa", mfaLimiter, noStore, async (req, res) => {
+  const { admin, mode } = await resolveMfaContext(req);
+  if (!admin || !admin.is_active || !admin.mfa_enabled) return res.redirect("/admin/login");
+
+  const code = String((req.body && req.body.code) || "").trim();
+  const recovery = String((req.body && req.body.recovery) || "").trim();
+  const stepupNext = safeNext(req.body && req.body.next, "/admin");
+  const ipHash = hashIp(clientIp(req));
+  const failKey = "mfa:" + admin.id;
+
+  const wait = loginFailDelay(failKey);
+  if (wait > 0) await new Promise((r) => setTimeout(r, wait));
+
+  const renderErr = (msg) =>
+    res.status(401).render("admin-mfa", {
+      error: msg,
+      mode,
+      next: mode === "stepup" ? stepupNext : req.session.pendingReturnTo || null,
+      username: admin.username,
+    });
+
+  let ok = false;
+  let usedRecovery = false;
+  if (recovery) {
+    ok = await verifyRecoveryCode(admin.id, recovery);
+    usedRecovery = ok;
+  } else {
+    const secret = decryptSecret(admin.mfa_secret);
+    const step = secret ? totp.verifyTotp(secret, code, {}) : null;
+    if (step != null && (admin.mfa_last_step == null || step > Number(admin.mfa_last_step))) {
+      await db.query("UPDATE admins SET mfa_last_step = $1 WHERE id = $2", [step, admin.id]);
+      ok = true;
+    }
+  }
+
+  if (!ok) {
+    noteLoginFailure(failKey);
+    auditAdminEvent({
+      action: "admin_mfa",
+      actorId: admin.id,
+      actorUsername: admin.username,
+      actorRole: admin.role,
+      targetType: "admin",
+      targetId: admin.id,
+      targetUsername: admin.username,
+      result: "failure",
+      reason: recovery ? "bad_recovery_code" : "bad_totp",
+      ipHash,
+    });
+    return renderErr("Kode verifikasi salah.");
+  }
+
+  auditAdminEvent({
+    action: "admin_mfa",
+    actorId: admin.id,
+    actorUsername: admin.username,
+    actorRole: admin.role,
+    targetType: "admin",
+    targetId: admin.id,
+    targetUsername: admin.username,
+    result: "success",
+    reason: usedRecovery ? "recovery_code" : "totp",
+    ipHash,
+  });
+  loginFailures.delete(failKey);
+
+  if (mode === "login") {
+    const returnTo = req.session.pendingReturnTo;
+    const okS = await establishAdminSession(req, res, admin);
+    if (!okS)
+      return res.status(500).render("admin-login", { error: "Gagal memulai sesi. Coba lagi." });
+    onAdminLoginSuccess(req, admin);
+    const dest = safeNext(returnTo, admin.role === "super_admin" ? "/super-admin" : "/admin");
+    return res.redirect(dest);
+  }
+  // mode step-up: cukup segarkan waktu verifikasi.
+  req.session.mfaVerified = true;
+  req.session.mfaVerifiedAt = Date.now();
+  return res.redirect(stepupNext);
+});
+
+// ---- Setup / enrollment MFA ----
+app.get("/admin/mfa/setup", noStore, async (req, res) => {
+  const { admin, mode } = await resolveMfaContext(req);
+  if (!admin || !admin.is_active) return res.redirect("/admin/login");
+  if (admin.mfa_enabled && req.query.reenroll !== "1") {
+    return res.redirect(mode === "stepup" ? "/admin" : "/admin/mfa");
+  }
+  const secret = totp.generateSecret();
+  const issuer = "Live Chat Dinkes";
+  const label = admin.email || admin.username;
+  const otpauth = totp.otpauthUri({ secret, label, issuer });
+  let qr = null;
+  try {
+    qr = await QRCode.toDataURL(otpauth, { width: 220, margin: 1 });
+  } catch (err) {
+    console.error("Gagal membuat QR MFA:", err.message);
+  }
+  req.session.pendingMfaSecret = secret;
+  req.session.save(() =>
+    res.render("admin-mfa-setup", {
+      error: null,
+      secret,
+      otpauth,
+      qr,
+      username: admin.username,
+      mfaEnabled: !!admin.mfa_enabled,
+    }),
+  );
+});
+
+app.post("/admin/mfa/setup", mfaLimiter, noStore, async (req, res) => {
+  const { admin, mode } = await resolveMfaContext(req);
+  if (!admin || !admin.is_active) return res.redirect("/admin/login");
+  const secret = req.session.pendingMfaSecret;
+  if (!secret) return res.redirect("/admin/mfa/setup");
+  const code = String((req.body && req.body.code) || "").trim();
+  const ipHash = hashIp(clientIp(req));
+  const issuer = "Live Chat Dinkes";
+  const label = admin.email || admin.username;
+
+  const step = totp.verifyTotp(secret, code, {});
+  if (step == null) {
+    const otpauth = totp.otpauthUri({ secret, label, issuer });
+    let qr = null;
+    try {
+      qr = await QRCode.toDataURL(otpauth, { width: 220, margin: 1 });
+    } catch (err) {}
+    return res.status(400).render("admin-mfa-setup", {
+      error: "Kode salah atau kedaluwarsa. Masukkan kode terbaru.",
+      secret,
+      otpauth,
+      qr,
+      username: admin.username,
+      mfaEnabled: !!admin.mfa_enabled,
+    });
+  }
+
+  const codes = totp.generateRecoveryCodes(10);
+  const hashes = await Promise.all(
+    codes.map((c) => bcrypt.hash(totp.normalizeRecoveryCode(c), BCRYPT_ROUNDS)),
+  );
+  const client = await db.connect();
+  try {
+    await client.query("BEGIN");
+    await client.query(
+      `UPDATE admins
+          SET mfa_secret = $1, mfa_enabled = TRUE, mfa_enrolled_at = NOW(), mfa_last_step = $2
+        WHERE id = $3`,
+      [encryptSecret(secret), step, admin.id],
+    );
+    await client.query("DELETE FROM admin_mfa_recovery_codes WHERE admin_id = $1", [admin.id]);
+    for (const h of hashes) {
+      await client.query(
+        "INSERT INTO admin_mfa_recovery_codes (admin_id, code_hash) VALUES ($1,$2)",
+        [admin.id, h],
+      );
+    }
+    await client.query("COMMIT");
+  } catch (err) {
+    await client.query("ROLLBACK");
+    console.error("Gagal menyimpan MFA:", err.message);
+    return res.status(500).render("admin-message", {
+      title: "Gagal menyimpan MFA",
+      message: "Terjadi kesalahan. Coba lagi.",
+      loginHref: "/admin/mfa/setup",
+      loginText: "Coba Lagi",
+    });
+  } finally {
+    client.release();
+  }
+  delete req.session.pendingMfaSecret;
+
+  auditAdminEvent({
+    action: "admin_mfa_enroll",
+    actorId: admin.id,
+    actorUsername: admin.username,
+    actorRole: admin.role,
+    targetType: "admin",
+    targetId: admin.id,
+    targetUsername: admin.username,
+    result: "success",
+    ipHash,
+  });
+
+  let dest = admin.role === "super_admin" ? "/super-admin" : "/admin";
+  if (mode === "login") {
+    const returnTo = req.session.pendingReturnTo;
+    const okS = await establishAdminSession(req, res, admin);
+    if (!okS)
+      return res.status(500).render("admin-login", { error: "Gagal memulai sesi. Coba lagi." });
+    onAdminLoginSuccess(req, admin);
+    dest = safeNext(returnTo, dest);
+  } else {
+    req.session.mfaVerified = true;
+    req.session.mfaVerifiedAt = Date.now();
+  }
+  // Tampilkan kode pemulihan SEKALI (tidak disimpan plaintext).
+  res.render("admin-mfa-recovery", { codes, next: dest });
+});
+
+// ---- Regenerate kode pemulihan ----
+app.post(
+  "/admin/mfa/recovery/regenerate",
+  requireRecentMfa(),
+  mfaLimiter,
+  noStore,
+  async (req, res) => {
+    const admin = await getAdminById(req.admin.id);
+    const password = String((req.body && req.body.password) || "");
+    const code = String((req.body && req.body.code) || "");
+    const ipHash = hashIp(clientIp(req));
+    const pwOk = admin && admin.password ? bcrypt.compareSync(password, admin.password) : false;
+    const secret = admin ? decryptSecret(admin.mfa_secret) : null;
+    const step = secret ? totp.verifyTotp(secret, code, {}) : null;
+    if (!pwOk || step == null) {
+      auditAdminEvent({
+        action: "admin_mfa_recovery_regenerate",
+        actorId: req.admin.id,
+        actorUsername: req.admin.username,
+        actorRole: req.admin.role,
+        targetType: "admin",
+        targetId: req.admin.id,
+        targetUsername: req.admin.username,
+        result: "failure",
+        reason: "bad_credentials",
+        ipHash,
+      });
+      return res.status(400).render("admin-message", {
+        title: "Verifikasi gagal",
+        message: "Password atau kode MFA salah.",
+        loginHref: "/admin/change-password",
+        loginText: "Kembali",
+      });
+    }
+    const codes = totp.generateRecoveryCodes(10);
+    const hashes = await Promise.all(
+      codes.map((c) => bcrypt.hash(totp.normalizeRecoveryCode(c), BCRYPT_ROUNDS)),
+    );
+    await db.query("DELETE FROM admin_mfa_recovery_codes WHERE admin_id = $1", [admin.id]);
+    for (const h of hashes) {
+      await db.query("INSERT INTO admin_mfa_recovery_codes (admin_id, code_hash) VALUES ($1,$2)", [
+        admin.id,
+        h,
+      ]);
+    }
+    auditAdminEvent({
+      action: "admin_mfa_recovery_regenerate",
+      actorId: admin.id,
+      actorUsername: admin.username,
+      actorRole: admin.role,
+      targetType: "admin",
+      targetId: admin.id,
+      targetUsername: admin.username,
+      result: "success",
+      ipHash,
+    });
+    const dest = admin.role === "super_admin" ? "/super-admin" : "/admin";
+    res.render("admin-mfa-recovery", { codes, next: dest });
+  },
+);
+
+// ---- Nonaktifkan MFA (TIDAK berlaku untuk Super Admin) ----
+app.post("/admin/mfa/disable", requireRecentMfa(), mfaLimiter, noStore, async (req, res) => {
+  const admin = req.admin;
+  const ipHash = hashIp(clientIp(req));
+  if (admin.role === "super_admin") {
+    auditAdminEvent({
+      action: "admin_mfa_disable",
+      actorId: admin.id,
+      actorUsername: admin.username,
+      actorRole: admin.role,
+      targetType: "admin",
+      targetId: admin.id,
+      targetUsername: admin.username,
+      result: "denied",
+      reason: "super_admin_requires_mfa",
+      ipHash,
+    });
+    return res.status(403).render("admin-message", {
+      title: "Tidak diizinkan",
+      message: "MFA wajib untuk Super Admin dan tidak dapat dimatikan.",
+      loginHref: "/admin",
+      loginText: "Kembali",
+    });
+  }
+  const full = await getAdminById(admin.id);
+  const password = String((req.body && req.body.password) || "");
+  const code = String((req.body && req.body.code) || "");
+  const pwOk = full && full.password ? bcrypt.compareSync(password, full.password) : false;
+  const secret = full ? decryptSecret(full.mfa_secret) : null;
+  const step = secret ? totp.verifyTotp(secret, code, {}) : null;
+  if (!full || !full.mfa_enabled || !pwOk || step == null) {
+    auditAdminEvent({
+      action: "admin_mfa_disable",
+      actorId: admin.id,
+      actorUsername: admin.username,
+      actorRole: admin.role,
+      targetType: "admin",
+      targetId: admin.id,
+      targetUsername: admin.username,
+      result: "failure",
+      reason: !full || !full.mfa_enabled ? "mfa_not_enabled" : "bad_credentials",
+      ipHash,
+    });
+    return res.status(400).render("admin-message", {
+      title: "Verifikasi gagal",
+      message: "Password atau kode MFA salah.",
+      loginHref: "/admin/change-password",
+      loginText: "Kembali",
+    });
+  }
+  const upd = await db.query(
+    `UPDATE admins
+        SET mfa_enabled = FALSE, mfa_secret = NULL, mfa_last_step = NULL,
+            mfa_enrolled_at = NULL, session_version = session_version + 1
+      WHERE id = $1 RETURNING session_version`,
+    [admin.id],
+  );
+  await db.query("DELETE FROM admin_mfa_recovery_codes WHERE admin_id = $1", [admin.id]);
+  req.session.adminSessionVersion = upd.rows[0].session_version;
+  req.session.mfaVerified = true;
+  auditAdminEvent({
+    action: "admin_mfa_disable",
+    actorId: admin.id,
+    actorUsername: admin.username,
+    actorRole: admin.role,
+    targetType: "admin",
+    targetId: admin.id,
+    targetUsername: admin.username,
+    result: "success",
+    ipHash,
+  });
+  res.redirect("/admin/change-password");
+});
 
 app.get("/admin/logout", (req, res) => {
   if (req.session && req.session.isAdmin && req.session.adminId) {
@@ -1617,24 +2222,297 @@ app.get("/admin/logout", (req, res) => {
 
 // =============================================
 // ROUTE: Super Admin (administratif global)
-// Hanya role super_admin. Dashboard pemantauan akun admin menyusul;
-// untuk saat ini menjadi halaman arahan setelah login.
+// Hanya role super_admin. Dashboard pemantauan metrik layanan seluruh RS.
 // =============================================
-app.get("/super-admin", requireSuperAdmin, noStore, async (req, res) => {
-  let events = [];
-  try {
-    const r = await db.query(
-      `SELECT action, actor_username, actor_role, target_username, result, reason, created_at
-         FROM admin_audit_events
-        ORDER BY created_at DESC
-        LIMIT 20`,
-    );
-    events = r.rows;
-  } catch (err) {
-    console.error("Error memuat audit super-admin:", err.message);
+// Agregasi metrik per rumah sakit (jumlah room/pasien, pesan baru, total pesan,
+// aktivitas terakhir). Selalu menampilkan semua RS pada RUMAH_SAKIT_LIST,
+// termasuk yang belum punya pasien/pesan (nilai 0).
+async function fetchSuperAdminStats() {
+  const [roomsRes, unreadRes, msgRes] = await Promise.all([
+    db.query(
+      "SELECT rumah_sakit, COUNT(*)::int AS total_rooms FROM patients GROUP BY rumah_sakit",
+    ),
+    db.query(
+      `SELECT p.rumah_sakit,
+              COALESCE(SUM(ru.unread_count), 0)::int AS total_unread
+         FROM patients p
+         LEFT JOIN (
+           SELECT room_id, MAX(unread_count) AS unread_count
+             FROM room_unread
+            GROUP BY room_id
+         ) ru ON ru.room_id = (p.rumah_sakit || '_' || p.id)
+        GROUP BY p.rumah_sakit`,
+    ),
+    db.query(
+      `SELECT p.rumah_sakit,
+              COUNT(m.id)::int AS total_messages,
+              MAX(m.created_at) AS last_message_at,
+              MAX(p.created_at) AS last_patient_at
+         FROM patients p
+         LEFT JOIN messages m ON m.room_id = (p.rumah_sakit || '_' || p.id)
+        GROUP BY p.rumah_sakit`,
+    ),
+  ]);
+
+  const map = new Map();
+  const ensure = (rs) => {
+    if (!map.has(rs)) {
+      map.set(rs, {
+        rumahSakit: rs,
+        totalRooms: 0,
+        totalUnread: 0,
+        totalMessages: 0,
+        lastActivity: null,
+      });
+    }
+    return map.get(rs);
+  };
+  for (const r of roomsRes.rows) ensure(r.rumah_sakit).totalRooms = r.total_rooms;
+  for (const r of unreadRes.rows) ensure(r.rumah_sakit).totalUnread = r.total_unread;
+  for (const r of msgRes.rows) {
+    const h = ensure(r.rumah_sakit);
+    h.totalMessages = r.total_messages;
+    const la = r.last_message_at || r.last_patient_at || null;
+    h.lastActivity = la ? new Date(la).toISOString() : null;
   }
-  res.render("super-admin", { adminUser: req.session.adminUser, events });
+
+  const hospitals = RUMAH_SAKIT_LIST.map((rs) => ensure(rs));
+  const totals = hospitals.reduce(
+    (acc, h) => {
+      acc.totalRooms += h.totalRooms;
+      acc.totalUnread += h.totalUnread;
+      acc.totalMessages += h.totalMessages;
+      return acc;
+    },
+    { totalHospitals: RUMAH_SAKIT_LIST.length, totalRooms: 0, totalUnread: 0, totalMessages: 0 },
+  );
+
+  return { hospitals, totals, generatedAt: new Date().toISOString() };
+}
+
+app.get("/super-admin", requireSuperAdmin, noStore, async (req, res) => {
+  let stats = null;
+  let error = null;
+  try {
+    stats = await fetchSuperAdminStats();
+  } catch (err) {
+    console.error("Error memuat statistik super-admin:", err.message);
+    error = "Gagal memuat data statistik rumah sakit.";
+  }
+  res.render("super-admin", {
+    adminUser: req.session.adminUser,
+    stats,
+    error,
+    canRead: !!req.admin.patient_data_read,
+  });
 });
+
+// API JSON untuk auto-refresh dashboard (tanpa reload halaman penuh).
+app.get("/api/super-admin/stats", requireSuperAdmin, noStore, async (req, res) => {
+  try {
+    const stats = await fetchSuperAdminStats();
+    res.json({ ok: true, ...stats });
+  } catch (err) {
+    console.error("Error API statistik super-admin:", err.message);
+    res.status(500).json({ ok: false, error: "Gagal memuat data statistik." });
+  }
+});
+
+// =============================================
+// PERMISSION TERPISAH: patient_data_read (baca-saja).
+// Butuh: role super_admin + permission aktif di DB + sesi akses ber-alasan
+// (berjangka waktu). TIDAK memberi hak menulis/mengubah/mengekspor.
+// =============================================
+async function requirePatientRead(req, res, next) {
+  const r = await loadAdminSession(req);
+  if (!r.ok) return denyOrRedirect(req, res, r);
+  if (r.row.role !== "super_admin" || !r.row.patient_data_read) {
+    auditAdminEvent({
+      action: "patient_search",
+      actorId: r.row.id,
+      actorUsername: r.row.username,
+      actorRole: r.row.role,
+      result: "denied",
+      reason: "permission_disabled",
+      ipHash: hashIp(clientIp(req)),
+    });
+    return res.status(403).render("admin-message", {
+      title: "Akses ditolak",
+      message: "Izin baca data pasien belum diberikan pada akun ini.",
+      loginHref: "/super-admin",
+      loginText: "Kembali ke Dashboard",
+    });
+  }
+  const sess = await getActiveAccessSession(r.row.id, "patient_data_read");
+  if (!sess) {
+    return res.status(403).render("admin-message", {
+      title: "Sesi akses belum aktif",
+      message: "Mulai sesi akses baca data pasien dengan menyertakan alasan terlebih dahulu.",
+      loginHref: "/super-admin/patient-access",
+      loginText: "Mulai Sesi Akses",
+    });
+  }
+  req.admin = r.row;
+  req.accessSession = sess;
+  next();
+}
+
+const PATIENT_ACCESS_MINUTES = 30;
+
+app.get("/super-admin/patient-access", requireSuperAdmin, noStore, async (req, res) => {
+  const sess = await getActiveAccessSession(req.admin.id, "patient_data_read");
+  res.render("super-admin-patient-access", {
+    adminUser: req.session.adminUser,
+    canRead: !!req.admin.patient_data_read,
+    session: sess,
+    minutes: PATIENT_ACCESS_MINUTES,
+    error: null,
+  });
+});
+
+app.post(
+  "/super-admin/patient-access",
+  requireSuperAdmin,
+  requireRecentMfa(),
+  noStore,
+  async (req, res) => {
+    const ipHash = hashIp(clientIp(req));
+    const renderPage = async (error) => {
+      const sess = await getActiveAccessSession(req.admin.id, "patient_data_read");
+      res.status(400).render("super-admin-patient-access", {
+        adminUser: req.session.adminUser,
+        canRead: !!req.admin.patient_data_read,
+        session: sess,
+        minutes: PATIENT_ACCESS_MINUTES,
+        error,
+      });
+    };
+    if (!req.admin.patient_data_read) {
+      auditAdminEvent({
+        action: "patient_access_grant",
+        actorId: req.admin.id,
+        actorUsername: req.admin.username,
+        actorRole: req.admin.role,
+        result: "denied",
+        reason: "permission_disabled",
+        ipHash: hashIp(clientIp(req)),
+      });
+      return res.status(403).render("admin-message", {
+        title: "Akses ditolak",
+        message: "Izin baca data pasien belum diberikan pada akun ini.",
+        loginHref: "/super-admin",
+        loginText: "Kembali ke Dashboard",
+      });
+    }
+    const reason = String((req.body && req.body.reason) || "").trim();
+    if (reason.length < 10) {
+      return res.status(400).render("super-admin-patient-access", {
+        adminUser: req.session.adminUser,
+        canRead: true,
+        session: await getActiveAccessSession(req.admin.id, "patient_data_read"),
+        minutes: PATIENT_ACCESS_MINUTES,
+        error: "Alasan wajib diisi, minimal 10 karakter.",
+      });
+    }
+    await db.query(
+      `INSERT INTO admin_access_sessions (admin_id, permission, reason, scope, expires_at, ip_hash)
+       VALUES ($1, 'patient_data_read', $2, 'all', NOW() + ($3 || ' minutes')::interval, $4)`,
+      [req.admin.id, reason, String(PATIENT_ACCESS_MINUTES), hashIp(clientIp(req))],
+    );
+    auditAdminEvent({
+      action: "patient_access_grant",
+      actorId: req.admin.id,
+      actorUsername: req.admin.username,
+      actorRole: req.admin.role,
+      targetType: "access_session",
+      result: "success",
+      reason,
+      metadata: { permission: "patient_data_read", minutes: PATIENT_ACCESS_MINUTES },
+      ipHash: hashIp(clientIp(req)),
+    });
+    res.redirect("/super-admin/patient-access");
+  },
+);
+
+app.post("/super-admin/patient-access/end", requireSuperAdmin, noStore, async (req, res) => {
+  const r = await db.query(
+    `UPDATE admin_access_sessions SET revoked_at = NOW()
+      WHERE admin_id = $1 AND permission = $2 AND revoked_at IS NULL AND expires_at > NOW()
+      RETURNING id`,
+    [req.admin.id, "patient_data_read"],
+  );
+  auditAdminEvent({
+    action: "patient_access_end",
+    actorId: req.admin.id,
+    actorUsername: req.admin.username,
+    actorRole: req.admin.role,
+    targetType: "access_session",
+    result: "success",
+    metadata: { revoked: r.rowCount },
+    ipHash: hashIp(clientIp(req)),
+  });
+  res.redirect("/super-admin/patient-access");
+});
+
+// Pencarian baca-saja (masked, terbatas) — fondasi panel Tahap 4.
+app.get(
+  "/api/super-admin/patient-search",
+  requirePatientRead,
+  noStore,
+  async (req, res) => {
+    const q = String(req.query.q || "").trim();
+    const ipHash = hashIp(clientIp(req));
+    if (q.length < 2) {
+      return res.status(400).json({ ok: false, error: "Kata kunci minimal 2 karakter." });
+    }
+    try {
+      const params = [];
+      let where = "";
+      if (/^\d+$/.test(q)) {
+        where = "WHERE id = $1";
+        params.push(parseInt(q, 10));
+      } else {
+        where = "WHERE nama ILIKE $1";
+        params.push("%" + q.replace(/[%_]/g, "") + "%");
+      }
+      const r = await db.query(
+        `SELECT id, nama, rumah_sakit, created_at, is_pinned
+           FROM patients ${where} ORDER BY id DESC LIMIT 20`,
+        params,
+      );
+      const results = r.rows.map((p) => ({
+        roomId: `${p.rumah_sakit}_${p.id}`,
+        rumahSakit: p.rumah_sakit,
+        namaMasked: maskName(p.nama),
+        lastActivity: p.created_at,
+      }));
+      auditAdminEvent({
+        action: "patient_search",
+        actorId: req.admin.id,
+        actorUsername: req.admin.username,
+        actorRole: req.admin.role,
+        targetType: "patient_search",
+        result: "success",
+        reason: req.accessSession ? "active_access_session" : null,
+        metadata: { query_len: q.length, results: results.length },
+        ipHash,
+      });
+      res.json({ ok: true, results });
+    } catch (err) {
+      console.error("Error patient-search:", err.message);
+      res.status(500).json({ ok: false, error: "Gagal mencari data." });
+    }
+  },
+);
+
+function maskName(name) {
+  const s = String(name || "").trim();
+  if (!s) return "-";
+  const parts = s.split(/\s+/);
+  return parts
+    .map((p) => (p.length <= 1 ? p : p[0] + "*".repeat(Math.min(p.length - 1, 6))))
+    .join(" ");
+}
 
 // =============================================
 // HELPER: Daftar room (pasien) satu rumah sakit, terurut untuk sidebar admin.

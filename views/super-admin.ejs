@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <meta name="csrf-token" content="<%= csrfToken %>" />
-  <title>Super Admin - Live Chat</title>
+  <title>Dashboard Super Admin - Live Chat</title>
   <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet" />
   <style>
     :root {
@@ -16,75 +16,162 @@
       --subtle: #64748b;
       --border: rgba(0, 0, 0, 0.1);
     }
+    * { box-sizing: border-box; }
     body { background: var(--bg); color: var(--text); margin: 0; font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
-    header { background: var(--surface); border-bottom: 1px solid var(--border); padding: 14px 20px; display: flex; align-items: center; gap: 12px; }
-    header h1 { font-size: 18px; margin: 0; color: var(--primary); font-weight: 700; }
+    header { background: var(--surface); border-bottom: 1px solid var(--border); padding: 12px 20px; display: flex; align-items: center; gap: 12px; flex-wrap: wrap; position: sticky; top: 0; z-index: 10; }
+    header h1 { font-size: 17px; margin: 0; color: var(--primary); font-weight: 700; line-height: 1.2; }
+    header h1 small { display: block; font-size: 11px; color: var(--subtle); font-weight: 500; letter-spacing: 0.02em; }
     .who { margin-left: auto; font-size: 12px; color: var(--subtle); }
     .who b { color: var(--primary-dark); }
-    main { max-width: 760px; margin: 32px auto; padding: 0 20px; }
-    .card { background: var(--surface); border: 1px solid var(--border); border-radius: 14px; padding: 22px; box-shadow: 0 8px 32px rgba(0, 0, 0, 0.05); }
-    .card h2 { margin: 0 0 8px; font-size: 17px; }
-    .card p { color: var(--subtle); font-size: 14px; line-height: 1.6; margin: 0 0 8px; }
-    .row-actions { display: flex; gap: 10px; margin-top: 16px; flex-wrap: wrap; }
-    a.btnx { text-decoration: none; padding: 10px 16px; border-radius: 10px; font-size: 14px; font-weight: 600; display: inline-block; }
-    a.btnx.primary { background: var(--primary); color: #fff; }
-    a.btnx.primary:hover { background: var(--primary-dark); color: #fff; }
-    a.btnx.ghost { border: 1px solid var(--border); color: var(--text); }
-    a.btnx.ghost:hover { border-color: var(--primary); color: var(--primary-dark); }
-    .events { margin-top: 22px; background: var(--surface); border: 1px solid var(--border); border-radius: 14px; padding: 22px; box-shadow: 0 8px 32px rgba(0, 0, 0, 0.05); }
-    .events h2 { margin: 0 0 4px; font-size: 17px; }
-    .events .muted { color: var(--subtle); font-size: 13px; margin: 0 0 14px; }
-    table.ev { width: 100%; border-collapse: collapse; font-size: 13px; }
-    table.ev th, table.ev td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--border); vertical-align: top; }
-    table.ev th { color: var(--subtle); font-weight: 600; font-size: 12px; text-transform: uppercase; letter-spacing: 0.03em; }
-    .tag { display: inline-block; padding: 1px 7px; border-radius: 999px; font-size: 11px; font-weight: 600; }
-    .tag.success { background: #dcfce7; color: #166534; }
-    .tag.failure { background: #fee2e2; color: #991b1b; }
-    .tag.denied { background: #fef3c7; color: #92400e; }
-    .empty { color: var(--subtle); font-size: 13px; }
+    .hdr-actions { display: flex; gap: 8px; }
+    main { max-width: 1000px; margin: 26px auto 40px; padding: 0 20px; }
+    .kpis { display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; }
+    @media (max-width: 780px) { .kpis { grid-template-columns: repeat(2, 1fr); } }
+    .kpi { background: var(--surface); border: 1px solid var(--border); border-radius: 14px; padding: 16px 18px; box-shadow: 0 6px 24px rgba(0, 0, 0, 0.05); }
+    .kpi .ic { font-size: 20px; line-height: 1; }
+    .kpi .val { font-size: 26px; font-weight: 700; margin: 6px 0 2px; font-variant-numeric: tabular-nums; }
+    .kpi .lbl { color: var(--subtle); font-size: 12px; }
+    .panel { margin-top: 20px; background: var(--surface); border: 1px solid var(--border); border-radius: 14px; padding: 18px 20px; box-shadow: 0 8px 32px rgba(0, 0, 0, 0.05); }
+    .panel .head { display: flex; align-items: center; gap: 12px; margin-bottom: 12px; flex-wrap: wrap; }
+    .panel h2 { margin: 0; font-size: 16px; }
+    .panel .muted { color: var(--subtle); font-size: 12px; }
+    .spacer { margin-left: auto; }
+    .btnx { padding: 8px 14px; border-radius: 9px; font-size: 13px; font-weight: 600; display: inline-block; border: 1px solid transparent; cursor: pointer; text-decoration: none; }
+    .btnx.primary { background: var(--primary); color: #fff; }
+    .btnx.primary:hover { background: var(--primary-dark); color: #fff; }
+    .btnx.ghost { border-color: var(--border); color: var(--text); background: var(--surface); }
+    .btnx.ghost:hover { border-color: var(--primary); color: var(--primary-dark); }
+    table.mon { width: 100%; border-collapse: collapse; font-size: 14px; }
+    table.mon th, table.mon td { text-align: left; padding: 10px 12px; border-bottom: 1px solid var(--border); vertical-align: middle; }
+    table.mon th { color: var(--subtle); font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.03em; }
+    table.mon td.num { text-align: right; font-variant-numeric: tabular-nums; }
+    table.mon tr:last-child td { border-bottom: none; }
+    .badge-unread { background: #dc2626; color: #fff; border-radius: 999px; padding: 2px 9px; font-size: 12px; font-weight: 600; white-space: nowrap; }
+    .badge-clear { background: #dcfce7; color: #166534; border-radius: 999px; padding: 2px 9px; font-size: 12px; font-weight: 600; white-space: nowrap; }
+    .row-total td { font-weight: 700; background: #f1f5f9; }
+    .updated { font-size: 12px; color: var(--subtle); }
   </style>
 </head>
 <body>
   <header>
-    <h1>Super Admin</h1>
+    <h1>Dashboard Super Admin<small>Dinas Kesehatan</small></h1>
     <span class="who"><%= adminUser %> &middot; <b>SUPER ADMIN</b></span>
-  </header>
-  <main>
-    <div class="card">
-      <h2>Pemantauan Akun Admin</h2>
-      <p>Anda login sebagai <b>Super Admin</b> dengan hak administratif global.</p>
-      <p>Dashboard pemantauan dan pengelolaan akun admin seluruh rumah sakit akan tersedia pada tahap berikutnya.</p>
-      <p>Akun ini <b>tidak</b> memiliki akses ke isi percakapan pasien.</p>
-      <div class="row-actions">
-        <a class="btnx primary" href="/admin/change-password">Ganti Password</a>
-        <a class="btnx ghost" href="/admin/logout">Logout</a>
-      </div>
-    </div>
-
-    <div class="events">
-      <h2>Aktivitas Terakhir</h2>
-      <p class="muted">20 event audit terbaru (login, aktivasi, reset, perubahan password). Tidak memuat password, token, atau isi chat.</p>
-      <% if (events && events.length) { %>
-        <table class="ev">
-          <thead>
-            <tr><th>Waktu</th><th>Aksi</th><th>Aktor</th><th>Target</th><th>Hasil</th></tr>
-          </thead>
-          <tbody>
-            <% events.forEach(function (e) { %>
-              <tr>
-                <td><%= new Date(e.created_at).toLocaleString('id-ID') %></td>
-                <td><%= e.action %></td>
-                <td><%= e.actor_username || '-' %><% if (e.actor_role) { %> <span class="muted">(<%= e.actor_role %>)</span><% } %></td>
-                <td><%= e.target_username || '-' %></td>
-                <td><span class="tag <%= e.result %>"><%= e.result %></span></td>
-              </tr>
-            <% }); %>
-          </tbody>
-        </table>
-      <% } else { %>
-        <p class="empty">Belum ada aktivitas tercatat.</p>
+    <div class="hdr-actions">
+      <% if (typeof canRead !== 'undefined' && canRead) { %>
+        <a class="btnx ghost" href="/super-admin/patient-access">Akses Data Pasien</a>
       <% } %>
+      <a class="btnx ghost" href="/admin/change-password">Ganti Password</a>
+      <a class="btnx ghost" href="/admin/logout">Logout</a>
     </div>
+  </header>
+
+  <main>
+    <% if (error) { %><div class="alert alert-warning py-2"><%= error %></div><% } %>
+
+    <section class="kpis">
+      <div class="kpi"><div class="ic">🏥</div><div class="val" id="kpiRs">-</div><div class="lbl">Total Rumah Sakit</div></div>
+      <div class="kpi"><div class="ic">👥</div><div class="val" id="kpiRooms">-</div><div class="lbl">Total Room Chat (Pasien)</div></div>
+      <div class="kpi"><div class="ic">📩</div><div class="val" id="kpiUnread">-</div><div class="lbl">Total Pesan Baru</div></div>
+      <div class="kpi"><div class="ic">💬</div><div class="val" id="kpiMessages">-</div><div class="lbl">Total Pesan Masuk</div></div>
+    </section>
+
+    <section class="panel">
+      <div class="head">
+        <h2>Pemantauan Data Tiap Rumah Sakit</h2>
+        <span class="muted" id="updatedAt"></span>
+        <span class="spacer"></span>
+        <button type="button" class="btnx primary" id="refreshBtn">Segarkan</button>
+      </div>
+      <div class="table-responsive">
+        <table class="mon">
+          <thead>
+            <tr>
+              <th style="width:44px">No</th>
+              <th>Nama Rumah Sakit</th>
+              <th class="num">Jumlah Room Chat</th>
+              <th class="num">Pesan Baru</th>
+              <th class="num">Total Pesan</th>
+              <th>Aktivitas Terakhir</th>
+            </tr>
+          </thead>
+          <tbody id="rsRows"></tbody>
+          <tfoot>
+            <tr class="row-total">
+              <td></td>
+              <td>Total</td>
+              <td class="num" id="totalRooms">0</td>
+              <td class="num" id="totalUnread">0</td>
+              <td class="num" id="totalMessages">0</td>
+              <td></td>
+            </tr>
+          </tfoot>
+        </table>
+      </div>
+      <p class="updated mt-2 mb-0">Data diperbarui otomatis setiap 15 detik.</p>
+    </section>
   </main>
+
+  <script>
+    window.__INITIAL_STATS__ = <%- JSON.stringify(stats || { hospitals: [], totals: { totalHospitals: 0, totalRooms: 0, totalUnread: 0, totalMessages: 0 } }) %>;
+
+    function esc(s) {
+      return String(s).replace(/[&<>"']/g, function (c) {
+        return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c];
+      });
+    }
+    function ago(iso) {
+      if (!iso) return "Belum ada aktivitas";
+      const d = new Date(iso);
+      const s = Math.floor((Date.now() - d.getTime()) / 1000);
+      if (s < 60) return "Baru saja";
+      const m = Math.floor(s / 60);
+      if (m < 60) return m + " menit yang lalu";
+      const h = Math.floor(m / 60);
+      if (h < 24) return h + " jam yang lalu";
+      const dd = Math.floor(h / 24);
+      if (dd < 30) return dd + " hari yang lalu";
+      return d.toLocaleDateString("id-ID");
+    }
+    function render(stats) {
+      const t = stats.totals || {};
+      document.getElementById("kpiRs").textContent = t.totalHospitals || 0;
+      document.getElementById("kpiRooms").textContent = t.totalRooms || 0;
+      document.getElementById("kpiUnread").textContent = t.totalUnread || 0;
+      document.getElementById("kpiMessages").textContent = t.totalMessages || 0;
+
+      const rows = stats.hospitals || [];
+      document.getElementById("rsRows").innerHTML = rows.map(function (h, i) {
+        const unread = h.totalUnread > 0
+          ? '<span class="badge-unread">' + h.totalUnread + ' pesan</span>'
+          : '<span class="badge-clear">0 (Bersih)</span>';
+        return '<tr>' +
+          '<td>' + (i + 1) + '</td>' +
+          '<td>' + esc(h.rumahSakit) + '</td>' +
+          '<td class="num">' + (h.totalRooms || 0) + '</td>' +
+          '<td class="num">' + unread + '</td>' +
+          '<td class="num">' + (h.totalMessages || 0) + '</td>' +
+          '<td>' + esc(ago(h.lastActivity)) + '</td>' +
+          '</tr>';
+      }).join("");
+
+      document.getElementById("totalRooms").textContent = t.totalRooms || 0;
+      document.getElementById("totalUnread").textContent = t.totalUnread || 0;
+      document.getElementById("totalMessages").textContent = t.totalMessages || 0;
+      document.getElementById("updatedAt").textContent = "Diperbarui " + new Date().toLocaleTimeString("id-ID");
+    }
+
+    async function refresh() {
+      try {
+        const r = await fetch("/api/super-admin/stats", { headers: { Accept: "application/json" } });
+        if (!r.ok) return;
+        const data = await r.json();
+        if (data && data.totals) render(data);
+      } catch (e) { /* biarkan data terakhir tetap tampil */ }
+    }
+
+    render(window.__INITIAL_STATS__);
+    document.getElementById("refreshBtn").addEventListener("click", refresh);
+    setInterval(refresh, 15000);
+  </script>
 </body>
 </html>
