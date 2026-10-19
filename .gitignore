@@ -3,3 +3,5 @@
 !.env.example
 node_modules
 database/admin-emails.json
+database/admins.seed.json
+!database/admins.seed.example.json

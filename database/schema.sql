@@ -58,8 +58,10 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_admins_email_lower
   ON admins (LOWER(email)) WHERE email IS NOT NULL;
 
 -- CATATAN KEAMANAN:
--- Tidak ada seed password default. Akun admin di-provisioning secara terpisah
--- dan password disimpan hanya sebagai hash. Jangan pernah menulis password,
+-- Tidak ada seed password default. Setelah tabel dibuat, isi akun admin awal
+-- dengan: node database/seed-admins.js (lihat database/admins.seed.example.json)
+-- atau provisioning satu per satu: node database/provision-admin.js.
+-- Password HANYA disimpan sebagai hash. Jangan pernah menulis password,
 -- token aktivasi, atau token reset ke Git, log, tiket, atau dokumen bersama.
 
 -- 6. Index untuk isolasi rumah sakit

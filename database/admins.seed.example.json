@@ -1,0 +1,4 @@
+[
+  { "username": "superadmin", "email": "superadmin@example.com", "role": "super_admin", "patient_data_read": false },
+  { "username": "rscontoh", "email": "admin.rs.contoh@example.com", "rumah_sakit": "RSUD Contoh", "role": "hospital_admin" }
+]
