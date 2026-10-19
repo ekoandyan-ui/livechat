@@ -82,10 +82,29 @@ if (process.env.REDIS_URL) {
       sendCommand: (...args) => redisClient.sendCommand(args),
       prefix: "lc:rl:",
     });
+} else if (process.env.DATABASE_URL) {
+  // Fallback persisten: simpan sesi di PostgreSQL agar login tidak hilang
+  // saat server di-restart (MemoryStore akan menghapus semua sesi).
+  const PgSession = require("connect-pg-simple")(session);
+  sessionStore = new PgSession({
+    conObject: {
+      connectionString: process.env.DATABASE_URL,
+      // Ikuti logika koneksi utama: Postgres lokal/docker tanpa SSL,
+      // Supabase/prod dengan SSL. Tanpa ini, compose (DATABASE_SSL=false)
+      // gagal konek karena ssl hardcoded true.
+      ssl:
+        process.env.DATABASE_SSL === "false"
+          ? false
+          : { rejectUnauthorized: false },
+    },
+    tableName: "admin_sessions",
+    createTableIfMissing: true,
+  });
+  console.log("Session store: PostgreSQL (persisten).");
 } else {
   console.warn(
-    "[PERINGATAN] REDIS_URL tidak diset -> memakai MemoryStore. " +
-      "Tidak disarankan untuk production / multi-instance.",
+    "[PERINGATAN] REDIS_URL & DATABASE_URL tidak diset -> memakai MemoryStore. " +
+      "Sesi akan hilang saat server restart. Tidak disarankan untuk production.",
   );
 }
 
@@ -895,8 +914,9 @@ function requireRecentMfa(maxMs = 15 * 60 * 1000) {
     if (!r.row.mfa_enabled) return next();
     const at = req.session.mfaVerifiedAt || 0;
     if (Date.now() - at <= maxMs) return next();
+    const fallback = r.row.role === "super_admin" ? "/super-admin" : "/admin";
     const dest =
-      req.method === "GET" && req.originalUrl ? req.originalUrl : "/admin";
+      req.method === "GET" && req.originalUrl ? req.originalUrl : fallback;
     return res.redirect("/admin/mfa?stepup=1&next=" + encodeURIComponent(dest));
   };
 }
@@ -1867,7 +1887,7 @@ app.get("/admin/mfa", noStore, async (req, res) => {
   res.render("admin-mfa", {
     error: null,
     mode,
-    next: mode === "stepup" ? safeNext(req.query.next, "/admin") : req.session.pendingReturnTo || null,
+      next: mode === "stepup" ? safeNext(req.query.next, admin.role === "super_admin" ? "/super-admin" : "/admin") : req.session.pendingReturnTo || null,
     username: admin.username,
   });
 });
@@ -1878,7 +1898,7 @@ app.post("/admin/mfa", mfaLimiter, noStore, async (req, res) => {
 
   const code = String((req.body && req.body.code) || "").trim();
   const recovery = String((req.body && req.body.recovery) || "").trim();
-  const stepupNext = safeNext(req.body && req.body.next, "/admin");
+  const stepupNext = safeNext(req.body && req.body.next, admin.role === "super_admin" ? "/super-admin" : "/admin");
   const ipHash = hashIp(clientIp(req));
   const failKey = "mfa:" + admin.id;
 

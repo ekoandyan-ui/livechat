@@ -272,3 +272,17 @@ CREATE TABLE IF NOT EXISTS admin_access_sessions (
   ip_hash TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_access_sessions_admin ON admin_access_sessions(admin_id, permission, expires_at DESC);
+
+-- =============================================
+-- BAGIAN 17: SESSION STORE (persisten)
+-- Dipakai connect-pg-simple bila REDIS_URL tidak diset, agar login admin
+-- tidak hilang saat server di-restart (pengganti MemoryStore).
+-- Dibuat otomatis oleh connect-pg-simple (createTableIfMissing), definisi ini
+-- sebagai rujukan/migrasi manual.
+-- =============================================
+CREATE TABLE IF NOT EXISTS admin_sessions (
+  sid VARCHAR NOT NULL COLLATE "default" PRIMARY KEY,
+  sess JSON NOT NULL,
+  expire TIMESTAMP(6) NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_admin_sessions_expire ON admin_sessions(expire);
