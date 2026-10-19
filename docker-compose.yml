@@ -43,9 +43,11 @@ services:
       DATABASE_URL: postgresql://${POSTGRES_USER:-livechat}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-livechat}?disable_ssl=true
       DATABASE_SSL: "false"
       NODE_ENV: ${NODE_ENV:-production}
-      # Default ke redis internal compose; bisa di-override via .env (REDIS_URL)
-      # untuk pakai Redis eksternal/managed. Kosongkan untuk fallback PG sessions.
-      REDIS_URL: ${REDIS_URL:-redis://:${LIVECHAT_REDIS_PASSWORD:-livechat_redis_2026}@redis:6379}
+      # URL default ditulis literal utuh (TANPA nested ${...:-...} di dalam
+      # default). Dulu format nested menempel suffix "@redis:6379}" di compose
+      # lama -> ERR_INVALID_URL. Password default harus sama dengan requirepass
+      # service redis di atas; samakan manual bila LIVECHAT_REDIS_PASSWORD diubah.
+      REDIS_URL: ${REDIS_URL:-redis://:livechat_redis_2026@redis:6379}
     depends_on:
       db:
         condition: service_healthy
