@@ -22,10 +22,13 @@ services:
     container_name: live-chat-app
     ports:
       - "9822:8000"
+    env_file:
+      - .env
     environment:
       PORT: 8000
       DATABASE_URL: postgresql://${POSTGRES_USER:-livechat}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-livechat}?disable_ssl=true
       DATABASE_SSL: "false"
+      NODE_ENV: ${NODE_ENV:-production}
     depends_on:
       db:
         condition: service_healthy
