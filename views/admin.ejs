@@ -4,6 +4,9 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Admin Dashboard - Live Chat</title>
+  <meta name="csrf-token" content="<%= csrfToken %>" />
+  <link rel="manifest" href="/manifest.webmanifest" />
+  <meta name="theme-color" content="#0ea5e9" />
   <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet" />
   <style>
     :root {
@@ -124,6 +127,7 @@
       <div class="ct-menu-wrap">
         <button type="button" class="ct-ic ct-menu-btn" id="adminMenuBtn" title="Menu" aria-label="Menu"><svg viewBox="0 0 24 24"><circle cx="12" cy="5" r="1.7"></circle><circle cx="12" cy="12" r="1.7"></circle><circle cx="12" cy="19" r="1.7"></circle></svg></button>
         <div class="ct-menu-panel" id="adminMenuPanel" hidden>
+          <button type="button" class="ct-menu-item" id="adminChangePwItem"><svg viewBox="0 0 24 24"><rect x="3" y="11" width="18" height="10" rx="2"></rect><path d="M7 11V7a5 5 0 0 1 10 0v4"></path></svg><span>Ganti Password</span></button>
           <button type="button" class="ct-menu-item" id="adminLogoutItem"><svg viewBox="0 0 24 24"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"></path><path d="m16 17 5-5-5-5"></path><path d="M21 12H9"></path></svg><span>Logout</span></button>
         </div>
       </div>
@@ -182,6 +186,10 @@
 
   <script src="/socket.io/socket.io.js"></script>
   <script>
+    function getCSRF() {
+      var m = document.querySelector('meta[name="csrf-token"]');
+      return m ? m.content : '';
+    }
     setInterval(() => location.reload(), 30000);
 
     // Dropdown menu titik tiga di header -> Logout
@@ -190,11 +198,13 @@
       const panel = document.getElementById('adminMenuPanel');
       const btn = document.getElementById('adminMenuBtn');
       const item = document.getElementById('adminLogoutItem');
+      const changePw = document.getElementById('adminChangePwItem');
       if (!wrap || !panel || !btn || !item) return;
       btn.addEventListener('click', (e) => { e.stopPropagation(); panel.hidden = !panel.hidden; });
       document.addEventListener('click', (e) => { if (!e.target.closest('.ct-menu-wrap')) panel.hidden = true; });
       document.addEventListener('keydown', (e) => { if (e.key === 'Escape') panel.hidden = true; });
       item.addEventListener('click', (e) => { e.stopPropagation(); panel.hidden = true; window.location.href = '/admin/logout'; });
+      if (changePw) changePw.addEventListener('click', (e) => { e.stopPropagation(); panel.hidden = true; window.location.href = '/admin/change-password'; });
     })();
 
     // ---------- Mode seleksi room (klik tahan) ----------
@@ -301,7 +311,7 @@
         });
         fetch('/api/room/pin', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: { 'Content-Type': 'application/json', 'x-csrf-token': getCSRF() },
           body: JSON.stringify({ ids, pinned: !allPinned })
         }).then((r) => r.json())
           .then((res) => { if (res && res.ok) location.reload(); else alert('Gagal menyematkan room.'); })
@@ -320,7 +330,7 @@
         modal.hidden = true;
         fetch('/api/room/delete', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: { 'Content-Type': 'application/json', 'x-csrf-token': getCSRF() },
           body: JSON.stringify({ ids })
         }).then((r) => r.json())
           .then((res) => { if (res && res.ok) location.reload(); else alert('Gagal menghapus room.'); })
@@ -344,14 +354,24 @@
       });
     })();
 
-    // ---------- Badge notifikasi pesan baru (real-time) ----------
+    // ---------- Badge + urutan room (real-time) ----------
     (function () {
       const badgeHost = document.querySelector('.hospital-badge');
       if (!badgeHost) return;
+      const listEl = document.querySelector('.room-list');
       const socket = io();
       socket.emit('join-admin-badges', badgeHost.textContent.trim());
+
+      function findItem(roomId) {
+        if (!listEl) return null;
+        return Array.prototype.find.call(
+          listEl.querySelectorAll('.room-item'),
+          function (it) { return it.getAttribute('data-room') === String(roomId); }
+        ) || null;
+      }
+
       function setBadge(roomId, count) {
-        const item = document.querySelector('.room-item[data-room="' + roomId + '"]');
+        const item = findItem(roomId);
         if (!item) return;
         let b = item.querySelector('.unread-badge');
         if (!b) {
@@ -362,10 +382,45 @@
         b.textContent = count > 99 ? '99+' : String(count);
         b.hidden = count <= 0;
       }
+
+      // Naikkan room ke paling atas, tetap di bawah room yang disematkan (pinned).
+      function moveToTop(item) {
+        if (!listEl || !item) return;
+        const pinned = listEl.querySelectorAll('.room-item.pinned');
+        const lastPinned = pinned.length ? pinned[pinned.length - 1] : null;
+        if (lastPinned) {
+          if (lastPinned.nextElementSibling !== item) {
+            listEl.insertBefore(item, lastPinned.nextElementSibling);
+          }
+        } else if (listEl.firstElementChild !== item) {
+          listEl.insertBefore(item, listEl.firstElementChild);
+        }
+      }
+
+      // Room baru (belum ada di daftar) -> muat ulang agar tersusun benar.
+      let reloadScheduled = false;
+      function scheduleReload() {
+        if (reloadScheduled) return;
+        reloadScheduled = true;
+        setTimeout(function () { location.reload(); }, 500);
+      }
+
       socket.on('unread-update', (d) => {
         if (d && d.roomId != null) setBadge(d.roomId, Number(d.count) || 0);
       });
+
+      socket.on('room-activity', (d) => {
+        if (!d || d.roomId == null) return;
+        const item = findItem(d.roomId);
+        if (!item) { scheduleReload(); return; }
+        if (typeof d.message === 'string' && d.message !== '' && d.senderName != null) {
+          const last = item.querySelector('.last-msg');
+          if (last) last.textContent = d.senderName + ': ' + d.message;
+        }
+        moveToTop(item);
+      });
     })();
   </script>
+  <%- include('partials/push-toggle') %>
 </body>
 </html>

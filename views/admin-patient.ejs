@@ -88,6 +88,7 @@
     <div class="action-bar">
       <a href="/admin/room/<%= user.id %>" class="btn-chat">Buka Chat</a>
       <form method="POST" action="/admin/patient/delete" style="margin:0;" onsubmit="return confirm('Hapus total chat pasien ini? Semua pesan akan dihapus dan pasien akan kembali ke form pendaftaran awal.')">
+        <input type="hidden" name="_csrf" value="<%= csrfToken %>" />
         <input type="hidden" name="patientId" value="<%= user.id %>" />
         <button type="submit" class="btn-danger">Hapus Total Chat</button>
       </form>

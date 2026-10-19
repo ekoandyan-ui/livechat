@@ -1,0 +1,14 @@
+<%- include('partials/admin-auth-head', { title: 'Reset Password' }) %>
+    <h2>RESET PASSWORD</h2>
+    <p class="subtitle">Tetapkan password baru Anda</p>
+    <% if (error) { %>
+      <div class="alert alert-danger"><%= error %></div>
+    <% } %>
+    <form method="POST" action="/admin/reset-password">
+      <input type="hidden" name="_csrf" value="<%= csrfToken %>" />
+      <input type="hidden" name="token" value="<%= token %>" />
+      <%- include('partials/password-field', { name: 'password', id: 'pw1', label: 'Password Baru', autocomplete: 'new-password', placeholder: 'Minimal 12 karakter', hint: 'Minimal 12 karakter. Hindari password umum atau sama dengan email.' }) %>
+      <%- include('partials/password-field', { name: 'password2', id: 'pw2', label: 'Ulangi Password', autocomplete: 'new-password', placeholder: 'Ulangi password' }) %>
+      <button type="submit" class="btn btn-login">SIMPAN PASSWORD</button>
+    </form>
+<%- include('partials/admin-auth-foot') %>

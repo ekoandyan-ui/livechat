@@ -172,6 +172,10 @@
   var CTX = window.__chatCtx || {};
   var myName = CTX.myName || '';
   var roomId = CTX.roomId || '';
+  function getCSRF() {
+    var m = document.querySelector('meta[name="csrf-token"]');
+    return m ? m.content : '';
+  }
 
   // ---------- Elemen ----------
   var slotEl = document.getElementById('chatActionSlot');
@@ -298,6 +302,7 @@
       });
       menuPanel.appendChild(b);
     });
+    if (window.LC_PUSH && window.LC_PUSH.mount) window.LC_PUSH.mount(menuPanel);
     wrap.appendChild(menuPanel);
     return wrap;
   }
@@ -449,7 +454,6 @@
     if (!ids.length) return;
     apiPost('/api/message/delete', {
       roomId: roomId,
-      viewerName: myName,
       messageIds: ids,
       mode: mode
     }).then(function (res) {
@@ -680,7 +684,7 @@
   function apiPost(url, body) {
     return fetch(url, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', 'x-csrf-token': getCSRF() },
       body: JSON.stringify(body)
     }).then(function (r) { return r.json().catch(function () { return {}; }); })
       .catch(function (e) { return { error: e.message }; });

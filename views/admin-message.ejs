@@ -1,0 +1,8 @@
+<%- include('partials/admin-auth-head', { title: title }) %>
+    <h2><%= title %></h2>
+    <p class="subtitle">Live Chat Admin</p>
+    <div class="alert alert-warning"><%= message %></div>
+    <% if (typeof loginHref !== 'undefined' && loginHref) { %>
+      <a class="btn btn-login" href="<%= loginHref %>" style="display:block;text-align:center;text-decoration:none"><%= typeof loginText !== 'undefined' && loginText ? loginText : 'Kembali' %></a>
+    <% } %>
+<%- include('partials/admin-auth-foot') %>
