@@ -1118,56 +1118,70 @@ app.get("/", async (req, res) => {
 // =============================================
 // ROUTE: Tambah Pasien Baru & Langsung Masuk Chat
 // =============================================
-app.post("/tambah", registerLimiter, async (req, res) => {
+// Cari pasien lama (agar pendaftaran ulang tidak memakai kuota rate-limit).
+// Urutan pengecekan sama dengan handler lama: token cookie, session roomId,
+// lalu nomor WhatsApp + rumah sakit.
+async function findExistingPatient(req) {
+  const { nomor_wa, rumah_sakit } = req.body || {};
+
+  // 1. Berdasarkan token di cookie
+  const tokenFromCookie = getCookie(req, "dinkes_patient_token");
+  if (tokenFromCookie && tokenFromCookie.length >= 32) {
+    const chkToken = await db.query(
+      "SELECT id, nama, alamat, nomor_wa, rumah_sakit, patient_token FROM patients WHERE patient_token = $1",
+      [tokenFromCookie],
+    );
+    if (chkToken.rows.length > 0) return chkToken.rows[0];
+  }
+
+  // 2. Berdasarkan session patientRoomId
+  if (req.session && req.session.patientRoomId) {
+    const lastUnderscore = req.session.patientRoomId.lastIndexOf("_");
+    const userId =
+      lastUnderscore > -1
+        ? req.session.patientRoomId.substring(lastUnderscore + 1)
+        : req.session.patientRoomId;
+    if (/^\d+$/.test(userId)) {
+      const chkSess = await db.query(
+        "SELECT id, nama, alamat, nomor_wa, rumah_sakit, patient_token FROM patients WHERE id = $1",
+        [userId],
+      );
+      if (chkSess.rows.length > 0) return chkSess.rows[0];
+    }
+  }
+
+  // 3. Berdasarkan nomor WhatsApp & Rumah Sakit yang sama yang belum dihapus
+  if (nomor_wa && rumah_sakit && RUMAH_SAKIT_LIST.includes(rumah_sakit)) {
+    const chkWa = await db.query(
+      "SELECT id, nama, alamat, nomor_wa, rumah_sakit, patient_token FROM patients WHERE nomor_wa = $1 AND rumah_sakit = $2 ORDER BY id DESC LIMIT 1",
+      [nomor_wa, rumah_sakit],
+    );
+    if (chkWa.rows.length > 0) return chkWa.rows[0];
+  }
+
+  return null;
+}
+
+// Middleware: anggarkan pasien lama ke req.existingPatient SEBELUM registerLimiter,
+// sehingga pendaftaran ulang (resume) tidak ikut memakai kuota.
+async function resolveExistingPatient(req, res, next) {
+  try {
+    req.existingPatient = (await findExistingPatient(req)) || null;
+    next();
+  } catch (err) {
+    console.error("Error cek pasien existing:", err.message);
+    res.status(500).send("Gagal menyimpan data.");
+  }
+}
+
+app.post("/tambah", resolveExistingPatient, registerLimiter, async (req, res) => {
   try {
     const { nama, alamat, nomor_wa, rumah_sakit } = req.body;
     if (!rumah_sakit || !RUMAH_SAKIT_LIST.includes(rumah_sakit)) {
       return res.status(400).send("Rumah sakit tidak valid.");
     }
 
-    // 1. Cek apakah pengguna saat ini sudah memiliki pasien aktif di DB
-    let existingPatient = null;
-
-    // Cek berdasarkan token di cookie
-    const tokenFromCookie = getCookie(req, "dinkes_patient_token");
-    if (tokenFromCookie && tokenFromCookie.length >= 32) {
-      const chkToken = await db.query(
-        "SELECT id, nama, alamat, nomor_wa, rumah_sakit, patient_token FROM patients WHERE patient_token = $1",
-        [tokenFromCookie],
-      );
-      if (chkToken.rows.length > 0) {
-        existingPatient = chkToken.rows[0];
-      }
-    }
-
-    // Cek berdasarkan session patientRoomId
-    if (!existingPatient && req.session && req.session.patientRoomId) {
-      const lastUnderscore = req.session.patientRoomId.lastIndexOf("_");
-      const userId =
-        lastUnderscore > -1
-          ? req.session.patientRoomId.substring(lastUnderscore + 1)
-          : req.session.patientRoomId;
-      if (/^\d+$/.test(userId)) {
-        const chkSess = await db.query(
-          "SELECT id, nama, alamat, nomor_wa, rumah_sakit, patient_token FROM patients WHERE id = $1",
-          [userId],
-        );
-        if (chkSess.rows.length > 0) {
-          existingPatient = chkSess.rows[0];
-        }
-      }
-    }
-
-    // Cek berdasarkan nomor WhatsApp & Rumah Sakit yang sama yang belum dihapus
-    if (!existingPatient && nomor_wa) {
-      const chkWa = await db.query(
-        "SELECT id, nama, alamat, nomor_wa, rumah_sakit, patient_token FROM patients WHERE nomor_wa = $1 AND rumah_sakit = $2 ORDER BY id DESC LIMIT 1",
-        [nomor_wa, rumah_sakit],
-      );
-      if (chkWa.rows.length > 0) {
-        existingPatient = chkWa.rows[0];
-      }
-    }
+    const existingPatient = req.existingPatient || null;
 
     // Jika pasien sudah ada dan belum dihapus admin: gunakan ID yang sama dan tetap!
     if (existingPatient) {
