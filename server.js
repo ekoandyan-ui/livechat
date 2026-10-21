@@ -138,13 +138,16 @@ const globalLimiter = rateLimit({
   ...makeStoreOpts(),
 });
 
-// Registrasi pasien: batasi ketat anti-spam.
+// Registrasi pasien BARU: batasi anti-spam. Pasien lama (sudah terdaftar)
+// dikecualikan lewat req.existingPatient (lihat resolveExistingPatient).
 const registerLimiter = rateLimit({
-  windowMs: 5 * 60 * 1000,
-  limit: 5,
+  windowMs: 15 * 60 * 1000,
+  limit: Number(process.env.REGISTER_LIMIT) || 30, // per IP per 15 menit
   standardHeaders: true,
   legacyHeaders: false,
-  message: { error: "Terlalu banyak pendaftaran. Coba lagi beberapa saat." },
+  skip: (req) => !!req.existingPatient,
+  skipFailedRequests: true, // 400/500 tidak memakan kuota
+  handler: registerLimitHandler,
   ...makeStoreOpts(),
 });
 
