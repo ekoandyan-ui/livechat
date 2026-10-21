@@ -102,6 +102,15 @@ if (process.env.REDIS_URL) {
   );
 }
 
+// Rate limiter tanpa Redis memakai memori per-instance: hitungan limit bisa
+// tidak konsisten pada lingkungan multi-instance/serverless. Hanya peringatan.
+if (IS_PRODUCTION && !process.env.REDIS_URL) {
+  console.warn(
+    "[PERINGATAN] REDIS_URL tidak diset: rate limiter memakai memori per-instance, " +
+      "hitungan limit bisa tidak konsisten di lingkungan multi-instance/serverless.",
+  );
+}
+
 const sessionMiddleware = session({
   name: "lc_sid", // hindari nama default "connect.sid"
   secret: SESSION_SECRET,
