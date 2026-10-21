@@ -1,6 +1,7 @@
 <% if (typeof senderName === 'undefined') senderName = ''; %>
 <% if (typeof roomId === 'undefined') roomId = ''; %>
 <% if (typeof placeholder === 'undefined') placeholder = 'Ketik pesan...'; %>
+<% if (typeof mineClass === 'undefined') mineClass = 'msg-mine'; %>
 
 <!-- =============================================
      Fitur Emoji & Lampiran (dipakai di chat pasien & admin)
@@ -78,7 +79,7 @@
   }
 </style>
 
-<div class="ct-composer ct-tools" data-sender="<%= senderName %>" data-room="<%= roomId %>">
+<div class="ct-composer ct-tools" data-sender="<%= senderName %>" data-room="<%= roomId %>" data-mine-class="<%= mineClass %>">
   <textarea id="msgInput" class="ct-msg-input" rows="1" placeholder="<%= placeholder %>" autocomplete="off"></textarea>
 
   <div class="ct-tools-bar">
@@ -469,20 +470,40 @@
 
       showUploading('Mengirim ' + (blob.name || file.name) + '...');
       const dataUrl = await blobToBase64(blob);
-      const res = await fetch('/api/upload', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'x-csrf-token': getCSRF() },
-        body: JSON.stringify({
+      const mineClass = composer.getAttribute('data-mine-class') || 'msg-mine';
+      const replyTo = (window.chatActions && window.chatActions.getReplyTo()) || null;
+
+      if (window.chatActions && window.chatActions.sendAttachment) {
+        // Bubble pending "mengirim" dibuat; UI status & dedupe ditangani bersama.
+        const p = window.chatActions.sendAttachment({
           roomId: roomId,
           senderName: senderName,
           mime: blob.type || file.type || 'application/octet-stream',
           name: file.name,
           size: blob.size,
-          data: dataUrl
-        })
-      });
-      const json = await res.json();
-      if (!res.ok || !json.ok) throw new Error(json.error || 'Upload gagal');
+          dataUrl: dataUrl,
+          replyTo: replyTo,
+          mineClass: mineClass
+        });
+        if (window.chatActions) window.chatActions.clearReply();
+        await p;
+      } else {
+        const res = await fetch('/api/upload', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'x-csrf-token': getCSRF() },
+          body: JSON.stringify({
+            roomId: roomId,
+            senderName: senderName,
+            mime: blob.type || file.type || 'application/octet-stream',
+            name: file.name,
+            size: blob.size,
+            data: dataUrl,
+            replyTo: replyTo
+          })
+        });
+        const json = await res.json();
+        if (!res.ok || !json.ok) throw new Error(json.error || 'Upload gagal');
+      }
     } catch (err) {
       alert('Gagal mengirim lampiran: ' + (err.message || 'Terjadi kesalahan'));
     } finally {

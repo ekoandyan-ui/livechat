@@ -152,7 +152,7 @@
   </div>
 
   <div class="chat-input">
-    <%- include('partials/chat-tools', { senderName: userName, roomId: roomId, placeholder: 'Ketik pesan...' }) %>
+    <%- include('partials/chat-tools', { senderName: userName, roomId: roomId, placeholder: 'Ketik pesan...', mineClass: 'msg-mine' }) %>
     <button type="button" id="sendBtn" title="Kirim" aria-label="Kirim"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3.714 3.048a.498.498 0 0 0-.683.627l2.843 7.627a2 2 0 0 1 0 1.396l-2.842 7.627a.498.498 0 0 0 .682.627l18-8.5a.5.5 0 0 0 0-.904z"/><path d="M6 12h16"/></svg></button>
   </div>
 
@@ -272,14 +272,29 @@
       return d.toLocaleString('id-ID', { day:'2-digit', month:'2-digit', year:'numeric', hour:'2-digit', minute:'2-digit' });
     }
 
-    function appendMessage(data) {
+    var lastConfirmedId = 0;
+    function trackId(data) {
+      var n = Number(data && data.id);
+      if (!isNaN(n) && n > lastConfirmedId) lastConfirmedId = n;
+    }
+    window.__renderMessages.forEach(trackId);
+
+    function appendMessage(data, opts) {
       const noMsg = chatMessages.querySelector('.no-msg');
       if (noMsg) noMsg.remove();
+
+      // Dedupe: bila bubble pending dengan clientMessageId sama masih ada,
+      // ganti dengan pesan kanonis (jangan tambah dua bubble).
+      if (data.client_message_id) {
+        const pending = chatMessages.querySelector('.msg[data-client-id="' + data.client_message_id + '"]');
+        if (pending) pending.remove();
+      }
 
       const isMine = data.sender_name === myName;
       const div = document.createElement('div');
       div.className = 'msg ' + (isMine ? 'msg-mine' : 'msg-other');
       div.dataset.id = data.id;
+      if (data.client_message_id) div.dataset.clientId = data.client_message_id;
       div.innerHTML = `
         <div class="msg-bubble">
           ${window.chatActions.buildBubble(data)}
@@ -290,18 +305,41 @@
       `;
       chatMessages.appendChild(div);
       window.chatActions.register(data);
-      scrollToBottom();
+      trackId(data);
+      if (!opts || opts.scroll !== false) scrollToBottom();
     }
+    window.__ctAppendMessage = appendMessage;
+    window.__ctScrollToBottom = scrollToBottom;
 
-    sendBtn.addEventListener('click', () => {
+    // Kirim ulang pesan yang gagal (clientMessageId sama -> tidak duplikat).
+    window.__ctRetryMessage = function (clientMessageId) {
+      var send = window.chatActions.retryMessage(clientMessageId);
+      if (!send) return;
+      window.chatActions.sendMessage({
+        socket: socket,
+        roomId: roomId,
+        clientMessageId: clientMessageId,
+        data: send.data
+      });
+    };
+
+    function doSend() {
       const msg = msgInput.value.trim();
       if (!msg) return;
       const replyTo = (window.chatActions && window.chatActions.getReplyTo()) || null;
-      socket.emit('message', { roomId, senderName: myName, message: msg, replyTo });
+      window.chatActions.sendMessage({
+        socket: socket,
+        roomId: roomId,
+        clientMessageId: window.chatActions.makeClientMessageId(),
+        data: { message: msg, replyTo: replyTo }
+      });
+      // Baru kosongkan input setelah bubble pending dibuat (bisa dipulihkan bila gagal).
       if (window.ctResetMsgBox) window.ctResetMsgBox();
       else msgInput.value = '';
       if (window.chatActions) window.chatActions.clearReply();
-    });
+    }
+
+    sendBtn.addEventListener('click', doSend);
 
     msgInput.addEventListener('keydown', (e) => {
       // Enter = kirim; Shift+Enter = baris baru
@@ -318,11 +356,58 @@
     });
 
     socket.on('room-message', (data) => {
-      if (data.room_id === roomId) {
-        const exists = chatMessages.querySelector(`[data-id="${data.id}"]`);
-        if (!exists) appendMessage(data);
+      if (data.room_id !== roomId) return;
+      const exists = chatMessages.querySelector(`[data-id="${data.id}"]`);
+      if (exists) return;
+      if (data.client_message_id) {
+        const pending = chatMessages.querySelector('.msg[data-client-id="' + data.client_message_id + '"]');
+        if (pending) pending.remove();
       }
+      appendMessage(data);
     });
+
+    // ---------- Catch-up setelah reconnect ----------
+    var catchingUp = false;
+    async function catchUp() {
+      if (catchingUp) return;
+      catchingUp = true;
+      try {
+        const res = await fetch('/api/messages/' + encodeURIComponent(roomId) + '?after=' + lastConfirmedId);
+        const json = await res.json();
+        if (json && Array.isArray(json.messages)) {
+          json.messages.forEach((m) => {
+            if (!chatMessages.querySelector('[data-id="' + m.id + '"]')) appendMessage(m, { scroll: false });
+          });
+          scrollToBottom();
+        }
+      } catch (err) {
+      } finally {
+        catchingUp = false;
+      }
+    }
+
+    socket.on('room-joined', (d) => {
+      if (!d || d.roomId !== roomId) return;
+      catchUp();
+    });
+
+    var wasDisconnected = false;
+    socket.on('connect', () => {
+      window.chatActions.updateConnBanner('connected', { reconnect: wasDisconnected });
+      wasDisconnected = false;
+      socket.emit('join-room', roomId);
+    });
+    socket.on('disconnect', () => {
+      wasDisconnected = true;
+      window.chatActions.updateConnBanner('reconnecting');
+    });
+    socket.on('connect_error', () => {
+      wasDisconnected = true;
+      window.chatActions.updateConnBanner('offline');
+    });
+
+    if (!socket.connected) window.chatActions.updateConnBanner('reconnecting');
+    else window.chatActions.updateConnBanner('connected');
   </script>
 </body>
 </html>
