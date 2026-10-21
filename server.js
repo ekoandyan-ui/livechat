@@ -126,6 +126,40 @@ function makeStoreOpts() {
   return limiterStore ? { store: limiterStore() } : {};
 }
 
+// Handler 429 untuk /tambah: form HTML biasa mendapat halaman ramah (form
+// tetap terisi, bukan JSON mentah); klien API tetap mendapat JSON.
+// Catatan: hashIp (HMAC, modul-scope) dipakai agar IP tidak pernah dicatat mentah.
+function registerLimitHandler(req, res, next, options) {
+  const reset = req.rateLimit && req.rateLimit.resetTime;
+  const menit = reset ? Math.max(1, Math.ceil((reset.getTime() - Date.now()) / 60000)) : 5;
+  const rs = (req.body && req.body.rumah_sakit) || "-";
+  const ipHash = hashIp(req.ip);
+  console.warn(
+    `[RATE-LIMIT] /tambah diblokir ip=${ipHash ? ipHash.slice(0, 10) : "-"} rs=${rs} reset=${menit}m`,
+  );
+
+  if (req.accepts(["html", "json"]) !== "html") {
+    return res
+      .status(options.statusCode)
+      .json({ error: "Terlalu banyak pendaftaran. Coba lagi beberapa saat." });
+  }
+
+  const body = req.body || {};
+  return res.status(options.statusCode).render("index", {
+    title: "TAMBAH PASIEN BARU",
+    rumahSakitList: RUMAH_SAKIT_LIST,
+    activePatient: null,
+    csrfToken: req.session && req.session.csrfToken,
+    formError: `Terlalu banyak percobaan dari jaringan ini. Silakan coba lagi sekitar ${menit} menit lagi.`,
+    formValues: {
+      nama: body.nama || "",
+      alamat: body.alamat || "",
+      nomor_wa: body.nomor_wa || "",
+      rumah_sakit: body.rumah_sakit || "",
+    },
+  });
+}
+
 // Global: melindungi seluruh endpoint dari flooding / bot / scanner.
 const globalLimiter = rateLimit({
   windowMs: 60 * 1000,
