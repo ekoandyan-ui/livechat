@@ -190,7 +190,6 @@
       var m = document.querySelector('meta[name="csrf-token"]');
       return m ? m.content : '';
     }
-    setInterval(() => location.reload(), 30000);
 
     // Dropdown menu titik tiga di header -> Logout
     (function () {
@@ -397,12 +396,72 @@
         }
       }
 
-      // Room baru (belum ada di daftar) -> muat ulang agar tersusun benar.
-      let reloadScheduled = false;
-      function scheduleReload() {
-        if (reloadScheduled) return;
-        reloadScheduled = true;
-        setTimeout(function () { location.reload(); }, 500);
+      // Bangun elemen room-item (aman, tanpa innerHTML dari data server).
+      function buildItem(room) {
+        const a = document.createElement('a');
+        a.href = '/admin/room/' + encodeURIComponent(room.id);
+        a.className = 'room-item' + (room.isPinned ? ' pinned' : '');
+        a.dataset.id = room.id;
+        a.dataset.room = room.roomId;
+
+        const name = document.createElement('div');
+        name.className = 'room-name';
+        name.textContent = room.nama || '';
+        if (room.isPinned) {
+          const svgNS = 'http://www.w3.org/2000/svg';
+          const svg = document.createElementNS(svgNS, 'svg');
+          svg.setAttribute('class', 'pin-ic');
+          svg.setAttribute('viewBox', '0 0 24 24');
+          svg.setAttribute('aria-label', 'Disematkan');
+          const p1 = document.createElementNS(svgNS, 'path');
+          p1.setAttribute('d', 'M12 17v5');
+          const p2 = document.createElementNS(svgNS, 'path');
+          p2.setAttribute('d', 'M9 10.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24V16a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-.76a2 2 0 0 0-1.11-1.79l-1.78-.9A2 2 0 0 1 15 10.76V6h1a2 2 0 0 0 0-4H8a2 2 0 0 0 0 4h1z');
+          svg.appendChild(p1); svg.appendChild(p2);
+          name.appendChild(svg);
+        }
+        a.appendChild(name);
+
+        const last = document.createElement('div');
+        last.className = 'last-msg';
+        if (room.lastMessage && room.lastMessage.sender_name != null) {
+          last.textContent = room.lastMessage.sender_name + ': ' + room.lastMessage.message;
+        } else {
+          last.textContent = 'Belum ada pesan';
+        }
+        a.appendChild(last);
+
+        if (room.unread > 0) {
+          const b = document.createElement('span');
+          b.className = 'unread-badge';
+          b.dataset.room = room.roomId;
+          b.textContent = room.unread > 99 ? '99+' : String(room.unread);
+          a.appendChild(b);
+        }
+        return a;
+      }
+
+      // Sinkronkan seluruh daftar room dari server (tanpa reload dokumen).
+      let syncing = false;
+      function syncRooms() {
+        if (!listEl || syncing) return;
+        syncing = true;
+        fetch('/api/rooms', { headers: { 'Accept': 'application/json' } })
+          .then(function (r) { return r.json(); })
+          .then(function (res) {
+            if (!res || !Array.isArray(res.rooms)) return;
+            listEl.innerHTML = '';
+            if (!res.rooms.length) {
+              const empty = document.createElement('div');
+              empty.style.cssText = 'text-align:center;color:var(--subtle);padding:40px 20px;font-size:14px;';
+              empty.textContent = 'Belum ada pasien di rumah sakit ini';
+              listEl.appendChild(empty);
+            } else {
+              res.rooms.forEach(function (room) { listEl.appendChild(buildItem(room)); });
+            }
+          })
+          .catch(function () {})
+          .finally(function () { syncing = false; });
       }
 
       socket.on('unread-update', (d) => {
@@ -412,13 +471,23 @@
       socket.on('room-activity', (d) => {
         if (!d || d.roomId == null) return;
         const item = findItem(d.roomId);
-        if (!item) { scheduleReload(); return; }
+        if (!item) { syncRooms(); return; }
         if (typeof d.message === 'string' && d.message !== '' && d.senderName != null) {
           const last = item.querySelector('.last-msg');
           if (last) last.textContent = d.senderName + ': ' + d.message;
         }
         moveToTop(item);
       });
+
+      // Setelah reconnect, sinkronkan ulang daftar agar event yang terlewat
+      // tidak meninggalkan urutan/badge yang salah.
+      let wasConnected = socket.connected;
+      socket.on('connect', function () {
+        socket.emit('join-admin-badges', badgeHost.textContent.trim());
+        if (wasConnected) syncRooms();
+        wasConnected = true;
+      });
+      socket.on('disconnect', function () { wasConnected = false; });
     })();
   </script>
   <%- include('partials/push-toggle') %>

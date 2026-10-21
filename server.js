@@ -382,6 +382,16 @@ db.query(
   .then(() => console.log("Kolom patient_token siap."))
   .catch((err) => console.error("Gagal menambah kolom patient_token:", err.message));
 
+// Pastikan kolom client_message_id (idempotensi pesan) tersedia.
+db.query(
+  `ALTER TABLE messages ADD COLUMN IF NOT EXISTS client_message_id TEXT;
+   CREATE UNIQUE INDEX IF NOT EXISTS idx_messages_client_id ON messages(room_id, client_message_id) WHERE client_message_id IS NOT NULL;`,
+)
+  .then(() => console.log("Kolom client_message_id siap."))
+  .catch((err) =>
+    console.error("Gagal menambah kolom client_message_id:", err.message),
+  );
+
 // Pastikan tabel notifikasi unread (badge pesan baru) tersedia.
 db.query(
   `CREATE TABLE IF NOT EXISTS room_unread (
@@ -2925,6 +2935,10 @@ app.get("/api/patient-exists/:roomId", async (req, res) => {
 // =============================================
 app.post("/api/upload", uploadLimiter, async (req, res) => {
   const { roomId, mime, name, data, replyTo } = req.body || {};
+  const clientMessageId =
+    typeof req.body?.clientMessageId === "string"
+      ? req.body.clientMessageId.trim().slice(0, 100)
+      : "";
   const id = sessionIdentity(req);
   if (!id || !identityCanAccessRoom(id, roomId)) {
     return res.status(403).json({ error: "Akses ditolak." });
@@ -2932,6 +2946,18 @@ app.post("/api/upload", uploadLimiter, async (req, res) => {
   try {
     if (!roomId || !name || !data || !/^data:.*;base64,/.test(data)) {
       return res.status(400).json({ error: "Data lampiran tidak lengkap." });
+    }
+
+    // Idempotensi: bila clientMessageId sudah tersimpan, kembalikan id yang sama
+    // tanpa menyimpan ulang (retry upload setelah timeout / ACK hilang).
+    if (clientMessageId) {
+      const existing = await db.query(
+        "SELECT id FROM messages WHERE room_id = $1 AND client_message_id = $2",
+        [roomId, clientMessageId],
+      );
+      if (existing.rows.length) {
+        return res.json({ ok: true, id: existing.rows[0].id, duplicate: true });
+      }
     }
 
     // Validasi pasien (room) masih ada
@@ -2990,7 +3016,7 @@ app.post("/api/upload", uploadLimiter, async (req, res) => {
     const senderName = id.name;
 
     const result = await db.query(
-      "INSERT INTO messages (room_id, sender_name, message, message_type, file_name, file_mime, file_data, file_size, reply_to) VALUES ($1, $2, $3, 'file', $4, $5, $6, $7, $8) RETURNING *",
+      "INSERT INTO messages (room_id, sender_name, message, message_type, file_name, file_mime, file_data, file_size, reply_to, client_message_id) VALUES ($1, $2, $3, 'file', $4, $5, $6, $7, $8, $9) RETURNING *, client_message_id",
       [
         roomId,
         senderName,
@@ -3000,27 +3026,28 @@ app.post("/api/upload", uploadLimiter, async (req, res) => {
         base64,
         buf.length,
         storedReplyTo,
+        clientMessageId || null,
       ],
     );
     const [m] = await attachReplyInfo([result.rows[0]]);
 
-    io.to(roomId).emit("room-message", {
-      id: m.id,
-      room_id: m.room_id,
-      sender_name: m.sender_name,
+    const payload = serializeMessage(m);
+
+    io.to(roomId).emit("room-message", payload);
+
+    bumpUnread(roomId).catch((e) =>
+      console.error("Error bumpUnread:", e.message),
+    );
+
+    io.to(ADMIN_CHAN(roomHospital(roomId))).emit("room-activity", {
+      roomId,
+      senderName: m.sender_name,
       message: m.message,
-      message_type: m.message_type,
-      file_name: m.file_name,
-      file_mime: m.file_mime,
-      file_size: m.file_size,
-      created_at: m.created_at,
-      reply_to: m.reply_to,
-      reply: m.reply,
+      messageType: m.message_type,
+      createdAt: m.created_at,
     });
 
-    bumpUnread(roomId);
-
-    res.json({ ok: true, id: m.id });
+    res.json({ ok: true, id: m.id, message: payload });
   } catch (err) {
     console.error("Gagal simpan lampiran:", err.message);
     res.status(500).json({ error: "Terjadi kesalahan server." });
@@ -3262,6 +3289,25 @@ function roomHospital(roomId) {
   return i > -1 ? roomId.substring(0, i) : roomId;
 }
 
+// Bentuk objek pesan kanonis yang aman dikirim ke client (teks & lampiran).
+// Metadata file hanya nama/mime/size; tidak pernah menyertakan file_data/base64.
+function serializeMessage(m) {
+  return {
+    id: m.id,
+    room_id: m.room_id,
+    sender_name: m.sender_name,
+    message: m.message,
+    message_type: m.message_type || "text",
+    file_name: m.file_name != null ? m.file_name : null,
+    file_mime: m.file_mime != null ? m.file_mime : null,
+    file_size: m.file_size != null ? m.file_size : null,
+    created_at: m.created_at,
+    reply_to: m.reply_to != null ? m.reply_to : null,
+    reply: m.reply != null ? m.reply : null,
+    client_message_id: m.client_message_id != null ? m.client_message_id : null,
+  };
+}
+
 // Tambah 1 hitung belum dibaca untuk setiap admin rumah sakit tsb
 // yang sedang TIDAK membuka room (kecuali sedang dibaca).
 async function bumpUnread(roomId) {
@@ -3423,6 +3469,13 @@ io.on("connection", (socket) => {
       socket.join(ADMIN_CHAN(id.rumahSakit));
       markRoomRead(roomId, id.name);
     }
+
+    // Konfirmasi ke client bahwa join divalidasi & selesai (dipakai untuk
+    // trigger catch-up pesan setelah connect/reconnect).
+    socket.emit("room-joined", {
+      roomId,
+      userCount: onlineUsers[roomId].size,
+    });
   });
 
   // Halaman daftar room admin: subscribe ke channel badge unread
@@ -3432,15 +3485,43 @@ io.on("connection", (socket) => {
     socket.join(ADMIN_CHAN(id.rumahSakit));
   });
 
-  // Kirim pesan
-  socket.on("message", async (data) => {
+  // Kirim pesan.
+  // Kontrak: socket.emit('message', payload, ack)
+  //   payload: { roomId, message, clientMessageId?, replyTo? }
+  //   ack({ ok:true, message }) | ack({ ok:false, code, error })
+  // Identitas pengirim SELALU dari sesi server, bukan dari payload.
+  socket.on("message", async (data, ack) => {
     const id = socketIdentity(socket);
-    if (!id) return;
+    const respond = (obj) => {
+      if (typeof ack === "function") {
+        try {
+          ack(obj);
+        } catch (e) {}
+      }
+    };
+    if (!id) return respond({ ok: false, code: "NOT_AUTHORIZED", error: "Tidak terautentikasi." });
 
     const { roomId, message } = data || {};
-    if (!roomId || !message) return;
-    if (!identityCanAccessRoom(id, roomId)) return;
-    if (!messageAllowed()) return; // throttled: abaikan diam-diam
+    const clientMessageId =
+      data && typeof data.clientMessageId === "string"
+        ? data.clientMessageId.trim().slice(0, 100)
+        : "";
+
+    if (!roomId || typeof roomId !== "string") {
+      return respond({ ok: false, code: "VALIDATION_ERROR", error: "Room tidak valid." });
+    }
+    if (typeof message !== "string" || !message.trim()) {
+      return respond({ ok: false, code: "VALIDATION_ERROR", error: "Pesan kosong." });
+    }
+    if (message.length > 5000) {
+      return respond({ ok: false, code: "VALIDATION_ERROR", error: "Pesan terlalu panjang." });
+    }
+    if (!identityCanAccessRoom(id, roomId)) {
+      return respond({ ok: false, code: "NOT_AUTHORIZED", error: "Akses ditolak." });
+    }
+    if (!messageAllowed()) {
+      return respond({ ok: false, code: "RATE_LIMITED", error: "Terlalu banyak pesan. Coba lagi." });
+    }
 
     try {
       if (id.type === "patient") {
@@ -3448,12 +3529,16 @@ io.on("connection", (socket) => {
         const lastUnderscore = roomId.lastIndexOf("_");
         const userId =
           lastUnderscore > -1 ? roomId.substring(lastUnderscore + 1) : roomId;
-        if (!/^\d+$/.test(userId)) return;
+        if (!/^\d+$/.test(userId)) {
+          return respond({ ok: false, code: "VALIDATION_ERROR", error: "Room tidak valid." });
+        }
         const patientChk = await db.query(
           "SELECT id FROM patients WHERE id = $1",
           [userId],
         );
-        if (!patientChk.rows.length) return;
+        if (!patientChk.rows.length) {
+          return respond({ ok: false, code: "NOT_AUTHORIZED", error: "Percakapan tidak ditemukan." });
+        }
       }
 
       let replyTo = null;
@@ -3466,40 +3551,75 @@ io.on("connection", (socket) => {
         if (!chk.rows.length) replyTo = null;
       }
 
+      const text = message.trim();
+      let savedRow = null;
+
+      // Idempotensi: bila clientMessageId sudah pernah disimpan di room ini,
+      // kembalikan pesan yang sama (tanpa emit/insert ulang).
+      if (clientMessageId) {
+        const existing = await db.query(
+          `SELECT ${MSG_COLS}, client_message_id FROM messages
+           WHERE room_id = $1 AND client_message_id = $2`,
+          [roomId, clientMessageId],
+        );
+        if (existing.rows.length) {
+          const [dup] = await attachReplyInfo(existing.rows);
+          return respond({ ok: true, message: serializeMessage(dup), duplicate: true });
+        }
+      }
+
       const result = await db.query(
-        "INSERT INTO messages (room_id, sender_name, message, reply_to) VALUES ($1, $2, $3, $4) RETURNING id, room_id, sender_name, message, message_type, file_name, file_mime, file_size, created_at, reply_to",
-        [roomId, id.name, message, replyTo],
+        `INSERT INTO messages (room_id, sender_name, message, reply_to, client_message_id)
+         VALUES ($1, $2, $3, $4, $5)
+         ON CONFLICT (room_id, client_message_id) WHERE client_message_id IS NOT NULL
+         DO NOTHING
+         RETURNING ${MSG_COLS}, client_message_id`,
+        [roomId, id.name, text, replyTo, clientMessageId || null],
       );
-      const [savedMsg] = await attachReplyInfo([result.rows[0]]);
 
-      io.to(roomId).emit("room-message", {
-        id: savedMsg.id,
-        room_id: savedMsg.room_id,
-        sender_name: savedMsg.sender_name,
-        message: savedMsg.message,
-        created_at: savedMsg.created_at,
-        reply_to: savedMsg.reply_to,
-        reply: savedMsg.reply,
-      });
+      if (result.rows.length) {
+        const [row] = await attachReplyInfo(result.rows);
+        savedRow = row;
+      } else {
+        // Konflik (retry paralel dengan ID sama): ambil baris yang sudah tersimpan.
+        const existing = await db.query(
+          `SELECT ${MSG_COLS}, client_message_id FROM messages
+           WHERE room_id = $1 AND client_message_id = $2`,
+          [roomId, clientMessageId],
+        );
+        if (existing.rows.length) {
+          const [dup] = await attachReplyInfo(existing.rows);
+          return respond({ ok: true, message: serializeMessage(dup), duplicate: true });
+        }
+        return respond({ ok: false, code: "RETRYABLE", error: "Gagal menyimpan pesan." });
+      }
 
-      bumpUnread(roomId);
+      const payload = serializeMessage(savedRow);
 
-      // Kabari sidebar admin (halaman daftar room) agar room ini naik ke atas
-      // dan pratinjau pesan terakhir ikut diperbarui (real-time).
+      // Sukses tersimpan: baru pancarkan ke seluruh anggota room.
+      io.to(roomId).emit("room-message", payload);
+
+      // Efek samping best-effort; kegagalan tidak membatalkan ACK sukses.
+      bumpUnread(roomId).catch((e) =>
+        console.error("Error bumpUnread:", e.message),
+      );
+
       io.to(ADMIN_CHAN(roomHospital(roomId))).emit("room-activity", {
         roomId,
-        senderName: savedMsg.sender_name,
-        message: savedMsg.message,
-        messageType: savedMsg.message_type,
-        createdAt: savedMsg.created_at,
+        senderName: savedRow.sender_name,
+        message: savedRow.message,
+        messageType: savedRow.message_type,
+        createdAt: savedRow.created_at,
       });
 
-      // Notifikasi Web Push (best effort; setelah pesan tersimpan).
-      sendPushForMessage(id, roomId, savedMsg).catch((e) =>
+      sendPushForMessage(id, roomId, savedRow).catch((e) =>
         console.error("Error sendPushForMessage:", e.message),
       );
+
+      respond({ ok: true, message: payload });
     } catch (err) {
       console.error("Gagal simpan pesan:", err.message);
+      respond({ ok: false, code: "DB_UNAVAILABLE", error: "Gagal menyimpan pesan." });
     }
   });
 

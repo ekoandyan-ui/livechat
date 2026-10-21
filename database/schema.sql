@@ -26,12 +26,16 @@ CREATE TABLE IF NOT EXISTS messages (
   room_id TEXT NOT NULL,
   sender_name TEXT NOT NULL,
   message TEXT NOT NULL,
+  client_message_id TEXT,
   created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
 -- 3. Index untuk performa query
 CREATE INDEX IF NOT EXISTS idx_messages_room_id ON messages(room_id);
 CREATE INDEX IF NOT EXISTS idx_messages_created_at ON messages(created_at);
+-- Kunci idempoten per client (dedup retry/ACK hilang), unik per room.
+CREATE UNIQUE INDEX IF NOT EXISTS idx_messages_client_id
+  ON messages(room_id, client_message_id) WHERE client_message_id IS NOT NULL;
 
 -- 4. Tabel admin untuk login admin rumah sakit
 -- username dipertahankan sebagai identifier internal (label & data historis),

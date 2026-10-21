@@ -105,6 +105,21 @@
   #ctToast { position: fixed; left: 50%; transform: translateX(-50%); bottom: 140px; z-index: 300; background: #0f172a; color: #fff; padding: 9px 16px; border-radius: 20px; font-size: 13px; box-shadow: 0 10px 24px rgba(0,0,0,.25); opacity: 0; pointer-events: none; transition: opacity .2s ease, transform .2s ease; }
   #ctToast.ct-show { opacity: 1; transform: translateX(-50%) translateY(-4px); }
 
+  /* Status pesan pada bubble sendiri (mengirim / terkirim / gagal) */
+  .msg-status { display: inline-flex; align-items: center; gap: 4px; font-size: 11px; margin-left: 6px; vertical-align: middle; }
+  .msg-status svg { width: 13px; height: 13px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+  .msg-status.sending { color: var(--subtle); }
+  .msg-status.sent { color: #16a34a; }
+  .msg-status.failed { color: #dc2626; cursor: pointer; text-decoration: underline; }
+  .msg.msg-failed .msg-bubble { opacity: .61; }
+
+  /* Banner status koneksi */
+  #ctConnBanner { position: fixed; left: 0; right: 0; top: 0; z-index: 400; text-align: center; font-size: 12.5px; font-weight: 600; padding: 6px 12px; color: #fff; transform: translateY(-100%); transition: transform .25s ease; }
+  #ctConnBanner.ct-show { transform: translateY(0); }
+  #ctConnBanner.ct-offline { background: #dc2626; }
+  #ctConnBanner.ct-reconnecting { background: #d97706; }
+  #ctConnBanner.ct-online { background: #16a34a; }
+
   @media (max-width: 576px) {
     .ct-ic { width: 32px; height: 32px; }
     .ct-searchbar { padding: 6px 12px; }
@@ -165,6 +180,7 @@
 </div>
 
 <div id="ctToast"></div>
+<div id="ctConnBanner" class="ct-conn" aria-live="polite"></div>
 
 <script>
 (function () {
@@ -740,6 +756,247 @@
   }
   fillQuotePlaceholders();
 
+  // ---------- Status pesan & pengiriman idempoten (dipakai kedua tampilan) ----------
+  // Interval pesan yang menunggu ACK, key = clientMessageId.
+  var pendingQueue = {};
+  var statusTimers = {};
+  var ACK_TIMEOUT_MS = 12000;
+
+  function makeClientMessageId() {
+    var rnd = (Math.random().toString(36).slice(2) + Date.now().toString(36)).slice(0, 20);
+    return 'c' + rnd;
+  }
+
+  function statusNode() {
+    var s = document.createElement('span');
+    s.className = 'msg-status sending';
+    s.innerHTML = '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"></circle><path d="M12 7v5l3 3"></path></svg><span>mengirim</span>';
+    return s;
+  }
+
+  function setStatus(el, state) {
+    if (!el) return;
+    var meta = el.querySelector('.msg-meta');
+    if (!meta) return;
+    var badge = meta.querySelector('.msg-status');
+    if (!badge) {
+      badge = statusNode();
+      meta.appendChild(badge);
+    }
+    badge.className = 'msg-status ' + state.replace('-static', '');
+    if (state === 'sending') {
+      badge.innerHTML = '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"></circle><path d="M12 7v5l3 3"></path></svg><span>mengirim</span>';
+      el.classList.remove('msg-failed');
+    } else if (state === 'sent') {
+      badge.innerHTML = '<svg viewBox="0 0 24 24"><path d="M20 6 9 17l-5-5"></path></svg><span>terkirim</span>';
+      el.classList.remove('msg-failed');
+    } else if (state === 'failed') {
+      badge.innerHTML = '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"></circle><path d="M12 8v4"></path><path d="M12 16h.01"></path></svg><span>Coba lagi</span>';
+      el.classList.add('msg-failed');
+    } else if (state === 'failed-static') {
+      badge.innerHTML = '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"></circle><path d="M12 8v4"></path><path d="M12 16h.01"></path></svg><span>gagal</span>';
+      badge.classList.add('failed');
+      el.classList.add('msg-failed');
+    }
+    if (state === 'sent') {
+      clearTimeout(statusTimers[state]);
+      setTimeout(function () { if (badge.isConnected) badge.remove(); }, 4000);
+    }
+  }
+
+  function findPendingEl(clientMessageId) {
+    if (!messagesEl || !clientMessageId) return null;
+    return messagesEl.querySelector('.msg[data-client-id="' + clientMessageId + '"]');
+  }
+
+  // Render bubble pending (status "mengirim"). Mengembalikan elemen/timestamp.
+  function appendPending(send) {
+    var noMsg = messagesEl.querySelector('.no-msg');
+    if (noMsg) noMsg.remove();
+    var div = document.createElement('div');
+    div.className = 'msg ' + (send.mineClass || 'msg-mine') + ' ct-pending';
+    div.dataset.clientId = send.clientMessageId;
+    var timeStr = new Date(send.timestamp || Date.now()).toLocaleString('id-ID', { day:'2-digit', month:'2-digit', year:'numeric', hour:'2-digit', minute:'2-digit' });
+    div.innerHTML = '<div class="msg-bubble">' + window.chatActions.buildBubble(send.data) + '</div>'
+      + '<div class="msg-meta">' + esc(timeStr) + '</div>';
+    setStatus(div, 'sending');
+    messagesEl.appendChild(div);
+    if (typeof window.__ctScrollToBottom === 'function') window.__ctScrollToBottom();
+    return div;
+  }
+
+  // Ganti bubble pending dengan pesan kanonis dari server.
+  function resolvePending(clientMessageId, canonical) {
+    var el = findPendingEl(clientMessageId);
+    if (!el) return;
+    el.remove();
+    delete pendingQueue[clientMessageId];
+    if (typeof window.__ctAppendMessage === 'function') {
+      window.__ctAppendMessage(canonical);
+    }
+  }
+
+  function failPending(clientMessageId, message) {
+    var el = findPendingEl(clientMessageId);
+    if (!el) return;
+    setStatus(el, 'failed');
+    toast(message || 'Pesan gagal terkirim. Ketuk "Coba lagi".');
+  }
+
+  // Kirim pesan teks lewat socket dengan ACK + idempotensi.
+  // opts: { socket, roomId, data, onSent, onFail }
+  function sendMessage(opts) {
+    var socket = opts.socket;
+    var roomId = opts.roomId;
+    var send = pendingQueue[opts.clientMessageId];
+    if (!send) {
+      send = {
+        clientMessageId: opts.clientMessageId || makeClientMessageId(),
+        data: opts.data,
+        mineClass: opts.mineClass || 'msg-mine',
+        timestamp: Date.now(),
+        attempts: 0
+      };
+      pendingQueue[send.clientMessageId] = send;
+      appendPending(send);
+    } else {
+      send.data = opts.data;
+      if (opts.mineClass) send.mineClass = opts.mineClass;
+      send.timestamp = Date.now();
+      var el = findPendingEl(send.clientMessageId);
+      if (el) { setStatus(el, 'sending'); el.classList.remove('msg-failed'); }
+    }
+    send.attempts++;
+
+    var acked = false;
+    clearTimeout(statusTimers[send.clientMessageId]);
+    statusTimers[send.clientMessageId] = setTimeout(function () {
+      if (!acked) failPending(send.clientMessageId, 'Waktu habis. Pesan belum terkirim.');
+    }, ACK_TIMEOUT_MS);
+
+    var payload = {
+      roomId: roomId,
+      message: send.data.message,
+      replyTo: send.data.replyTo != null ? send.data.replyTo : null,
+      clientMessageId: send.clientMessageId
+    };
+
+    try {
+      socket.emit('message', payload, function (res) {
+        acked = true;
+        clearTimeout(statusTimers[send.clientMessageId]);
+        if (res && res.ok && res.message) {
+          resolvePending(send.clientMessageId, res.message);
+          if (opts.onSent) opts.onSent(send.clientMessageId, res.message);
+        } else {
+          var code = res && res.code;
+          failPending(send.clientMessageId, res && res.error ? res.error : 'Pesan gagal terkirim.');
+          if (opts.onFail) opts.onFail(send.clientMessageId, code);
+        }
+      });
+    } catch (e) {
+      acked = true;
+      clearTimeout(statusTimers[send.clientMessageId]);
+      failPending(send.clientMessageId, 'Koneksi bermasalah. Coba lagi.');
+    }
+    return send.clientMessageId;
+  }
+
+  function retryMessage(clientMessageId) {
+    return pendingQueue[clientMessageId] || null;
+  }
+
+  // ---------- Upload lampiran (HTTP) dengan status & idempotensi ----------
+  // opts: { roomId, file, mime, name, size, dataUrl, mineClass, onDone }
+  function sendAttachment(opts) {
+    var clientMessageId = makeClientMessageId();
+    var send = {
+      clientMessageId: clientMessageId,
+      mineClass: opts.mineClass || 'msg-mine',
+      timestamp: Date.now(),
+      data: {
+        message_type: 'file',
+        message: opts.name,
+        file_name: opts.name,
+        file_mime: opts.mime,
+        file_size: opts.size,
+        reply_to: opts.replyTo != null ? opts.replyTo : null,
+        reply: null
+      }
+    };
+    pendingQueue[clientMessageId] = send;
+    appendPending(send);
+
+    return fetch('/api/upload', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'x-csrf-token': getCSRF() },
+      body: JSON.stringify({
+        roomId: opts.roomId,
+        senderName: opts.senderName,
+        mime: opts.mime,
+        name: opts.name,
+        size: opts.size,
+        data: opts.dataUrl,
+        replyTo: opts.replyTo != null ? opts.replyTo : null,
+        clientMessageId: clientMessageId
+      })
+    }).then(function (r) { return r.json().catch(function () { return {}; }); })
+      .then(function (json) {
+        if (json && json.ok) {
+          if (json.message) resolvePending(clientMessageId, json.message);
+          else {
+            // Server tidak mengembalikan kanonis; tunggu room-message via socket.
+            var el = findPendingEl(clientMessageId);
+            if (el) setStatus(el, 'sent');
+            delete pendingQueue[clientMessageId];
+          }
+          if (opts.onDone) opts.onDone(clientMessageId, true);
+        } else {
+          failPending(clientMessageId, (json && json.error) || 'Gagal mengirim lampiran.');
+          // Lampiran tidak bisa di-retry otomatis (perlu file asli).
+          var pel = findPendingEl(clientMessageId);
+          if (pel) setStatus(pel, 'failed-static');
+          delete pendingQueue[clientMessageId];
+          if (opts.onDone) opts.onDone(clientMessageId, false);
+        }
+      })
+      .catch(function (err) {
+        failPending(clientMessageId, 'Koneksi bermasalah saat mengirim lampiran.');
+        var pel = findPendingEl(clientMessageId);
+        if (pel) setStatus(pel, 'failed-static');
+        delete pendingQueue[clientMessageId];
+        if (opts.onDone) opts.onDone(clientMessageId, false);
+      });
+  }
+
+  // ---------- Banner status koneksi ----------
+  var connHideTimer = null;
+  function counterBanner() {
+    // Panggilan balik setelah tersambung yang bukan reconnect (untuk sembunyikan "terhubung")
+  }
+  function showConnBanner(state, text) {
+    if (!connBanner) return;
+    clearTimeout(connHideTimer);
+    connBanner.className = 'ct-conn ct-show';
+    connBanner.classList.remove('ct-offline', 'ct-reconnecting', 'ct-online');
+    connBanner.classList.add('ct-' + state);
+    connBanner.textContent = text;
+    if (state === 'online') {
+      connHideTimer = setTimeout(function () { connBanner.classList.remove('ct-show'); }, 2500);
+    }
+  }
+  function updateConnBanner(status, opts) {
+    if (status === 'connected') {
+      if (opts && opts.reconnect) showConnBanner('online', 'Terhubung kembali');
+      else if (!connBanner || !connBanner.textContent) showConnBanner('online', 'Terhubung');
+      else if (connBanner.classList.contains('ct-online')) showConnBanner('online', 'Terhubung');
+    } else if (status === 'reconnecting') {
+      showConnBanner('reconnecting', 'Menyambungkan kembali...');
+    } else if (status === 'offline') {
+      showConnBanner('offline', 'Tidak ada koneksi. Pesan akan dikirim saat tersambung.');
+    }
+  }
+
   // ---------- API publik untuk tampilan ----------
   window.chatActions = {
     register: register,
@@ -760,7 +1017,15 @@
     clearReply: clearReply,
     exitSelection: exitSelection,
     isSelected: function () { return selection.active; },
-    selectionCount: function () { return selection.ids.size; }
+    selectionCount: function () { return selection.ids.size; },
+    makeClientMessageId: makeClientMessageId,
+    sendMessage: sendMessage,
+    sendAttachment: sendAttachment,
+    retryMessage: retryMessage,
+    findPendingEl: findPendingEl,
+    updateConnBanner: updateConnBanner,
+    showConnBanner: showConnBanner,
+    hasPending: function (clientMessageId) { return !!pendingQueue[clientMessageId]; }
   };
 
   // ---------- Long press (mode seleksi) ----------
@@ -886,6 +1151,17 @@
   // Delegasi klik global: menu luar, quote scroll, pilih/batal pilih pesan
   document.addEventListener('click', function (e) {
     if (!e.target.closest('.ct-menu-wrap')) closeMenu();
+
+    // Ketuk badge "Coba lagi" untuk mengirim ulang dengan clientMessageId sama.
+    var failedBadge = e.target.closest('.msg-status.failed');
+    if (failedBadge) {
+      e.preventDefault();
+      e.stopPropagation();
+      var pmsg = failedBadge.closest('.msg');
+      var cid = pmsg && pmsg.dataset.clientId;
+      if (cid && typeof window.__ctRetryMessage === 'function') window.__ctRetryMessage(cid);
+      return;
+    }
 
     var quote = e.target.closest('.msg-quote');
     if (quote) {
