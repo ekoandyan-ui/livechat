@@ -38,6 +38,7 @@
     .overlay-card .continue-name { color: var(--primary); font-weight: 600; }
     .btn-continue { background: var(--primary); border: none; color: #fff; font-weight: 600; padding: 12px; border-radius: 10px; width: 100%; font-size: 15px; margin-bottom: 0; transition: all 0.2s ease-in-out; }
     .btn-continue:hover { background: var(--primary-dark); transform: translateY(-1px); }
+    .form-alert { background: rgba(220, 38, 38, 0.12); border: 1px solid rgba(220, 38, 38, 0.35); color: #b91c1c; border-radius: 10px; padding: 12px 15px; margin-bottom: 16px; font-size: 14px; }
 
     @media (max-width: 576px) {
       body { padding: 12px; justify-content: flex-start; }
@@ -58,6 +59,7 @@
   </style>
 </head>
 <body>
+  <% const fv = (typeof formValues !== 'undefined' && formValues) ? formValues : {}; %>
   <div class="overlay" id="resumeOverlay">
     <div class="overlay-card">
       <h3>Sesi Percakapan Aktif</h3>
@@ -70,26 +72,30 @@
     <h3><%= title %></h3>
     <p class="subtitle">Silakan isi data Anda untuk memulai percakapan</p>
 
+    <% if (typeof formError !== 'undefined' && formError) { %>
+      <div class="form-alert" role="alert"><%= formError %></div>
+    <% } %>
+
     <form action="/tambah" method="post">
       <input type="hidden" name="_csrf" value="<%= csrfToken %>" />
       <div class="mb-3">
         <label class="form-label">Nama Lengkap</label>
-        <input type="text" name="nama" class="form-control" placeholder="Masukkan nama lengkap" required />
+        <input type="text" name="nama" class="form-control" placeholder="Masukkan nama lengkap" value="<%= fv.nama || '' %>" required />
       </div>
       <div class="mb-3">
         <label class="form-label">Alamat</label>
-        <textarea name="alamat" class="form-control" rows="2" placeholder="Masukkan alamat lengkap" required></textarea>
+        <textarea name="alamat" class="form-control" rows="2" placeholder="Masukkan alamat lengkap" required><%= fv.alamat || '' %></textarea>
       </div>
       <div class="mb-3">
         <label class="form-label">Nomor WhatsApp</label>
-        <input type="tel" name="nomor_wa" class="form-control" placeholder="Contoh: 081234567890" pattern="[0-9+\-() ]*" inputmode="numeric" required />
+        <input type="tel" name="nomor_wa" class="form-control" placeholder="Contoh: 081234567890" pattern="[0-9+\-() ]*" inputmode="numeric" value="<%= fv.nomor_wa || '' %>" required />
       </div>
       <div class="mb-4">
         <label class="form-label">Rumah Sakit Tujuan</label>
         <select name="rumah_sakit" class="form-select" required>
-          <option value="" disabled selected>Pilih Rumah Sakit</option>
+          <option value="" disabled <%= fv.rumah_sakit ? '' : 'selected' %>>Pilih Rumah Sakit</option>
           <% rumahSakitList.forEach(rs => { %>
-            <option value="<%= rs %>"><%= rs %></option>
+            <option value="<%= rs %>" <%= fv.rumah_sakit === rs ? 'selected' : '' %>><%= rs %></option>
           <% }) %>
         </select>
       </div>
@@ -153,6 +159,26 @@
       continueBtn.addEventListener('click', () => {
         if (currentRoomId) {
           window.location.href = '/chat/' + encodeURIComponent(currentRoomId);
+        }
+      });
+    })();
+  </script>
+  <script>
+    (function () {
+      const form = document.querySelector('form[action="/tambah"]');
+      if (!form) return;
+      const btn = form.querySelector('button[type="submit"]');
+      const label = btn ? btn.textContent : '';
+      form.addEventListener('submit', function (e) {
+        if (form.dataset.sent === '1') { e.preventDefault(); return; }
+        form.dataset.sent = '1';
+        if (btn) { btn.disabled = true; btn.textContent = 'Memproses…'; }
+      });
+      // Tombol Back (bfcache): kembalikan tombol agar bisa dipakai lagi.
+      window.addEventListener('pageshow', function (e) {
+        if (e.persisted) {
+          form.dataset.sent = '0';
+          if (btn) { btn.disabled = false; btn.textContent = label; }
         }
       });
     })();
