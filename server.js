@@ -1118,6 +1118,21 @@ app.get("/", async (req, res) => {
 // =============================================
 // ROUTE: Tambah Pasien Baru & Langsung Masuk Chat
 // =============================================
+// Variasi format nomor WhatsApp. Hanya untuk PENCARIAN; nilai yang disimpan
+// ke database tetap apa adanya (tidak dinormalisasi).
+function waVariants(raw) {
+  const original = String(raw || "").trim();
+  const digits = original.replace(/\D/g, "");
+  if (!digits) return [];
+  const local = digits.startsWith("62")
+    ? "0" + digits.slice(2)
+    : digits.startsWith("0")
+      ? digits
+      : "0" + digits;
+  const core = local.slice(1);
+  return [...new Set([original, local, "62" + core, "+62" + core])];
+}
+
 // Cari pasien lama (agar pendaftaran ulang tidak memakai kuota rate-limit).
 // Urutan pengecekan sama dengan handler lama: token cookie, session roomId,
 // lalu nomor WhatsApp + rumah sakit.
@@ -1152,11 +1167,14 @@ async function findExistingPatient(req) {
 
   // 3. Berdasarkan nomor WhatsApp & Rumah Sakit yang sama yang belum dihapus
   if (nomor_wa && rumah_sakit && RUMAH_SAKIT_LIST.includes(rumah_sakit)) {
-    const chkWa = await db.query(
-      "SELECT id, nama, alamat, nomor_wa, rumah_sakit, patient_token FROM patients WHERE nomor_wa = $1 AND rumah_sakit = $2 ORDER BY id DESC LIMIT 1",
-      [nomor_wa, rumah_sakit],
-    );
-    if (chkWa.rows.length > 0) return chkWa.rows[0];
+    const variants = waVariants(nomor_wa);
+    if (variants.length > 0) {
+      const chkWa = await db.query(
+        "SELECT id, nama, alamat, nomor_wa, rumah_sakit, patient_token FROM patients WHERE nomor_wa = ANY($1::text[]) AND rumah_sakit = $2 ORDER BY id DESC LIMIT 1",
+        [variants, rumah_sakit],
+      );
+      if (chkWa.rows.length > 0) return chkWa.rows[0];
+    }
   }
 
   return null;
