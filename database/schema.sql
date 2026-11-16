@@ -10,6 +10,10 @@ CREATE TABLE IF NOT EXISTS patients (
   alamat TEXT NOT NULL DEFAULT '',
   nomor_wa TEXT NOT NULL DEFAULT '',
   rumah_sakit TEXT NOT NULL,
+  tanggal_lahir DATE,
+  jenis_kelamin TEXT CHECK (jenis_kelamin IN ('Laki-laki','Perempuan')),
+  chat_ended_at TIMESTAMPTZ,
+  chat_ended_by TEXT,
   created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
@@ -292,3 +296,86 @@ CREATE TABLE IF NOT EXISTS admin_sessions (
   expire TIMESTAMP(6) NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_admin_sessions_expire ON admin_sessions(expire);
+
+-- =============================================
+-- BAGIAN 18: NOTIFIKASI EMAIL PESAN BARU
+-- Email dikirim HANYA bila penerima sedang tidak membuka aplikasi/web.
+-- Alamat email pasien opsional dan BUKAN kredensial login.
+-- =============================================
+ALTER TABLE patients ADD COLUMN IF NOT EXISTS email TEXT;
+ALTER TABLE patients ADD COLUMN IF NOT EXISTS email_notify BOOLEAN NOT NULL DEFAULT TRUE;
+ALTER TABLE admins ADD COLUMN IF NOT EXISTS email_notify BOOLEAN NOT NULL DEFAULT TRUE;
+
+CREATE INDEX IF NOT EXISTS idx_patients_email_lower
+  ON patients (LOWER(email)) WHERE email IS NOT NULL;
+
+-- Outbox: satu baris pending per penerima -> pesan beruntun digabung
+-- (message_count bertambah) dan tahan restart server.
+CREATE TABLE IF NOT EXISTS email_outbox (
+  id BIGSERIAL PRIMARY KEY,
+  recipient_type TEXT NOT NULL CHECK (recipient_type IN ('patient','admin')),
+  recipient_id INTEGER NOT NULL,
+  recipient_email TEXT NOT NULL,
+  room_id TEXT,
+  message_count INTEGER NOT NULL DEFAULT 0,
+  first_message_id BIGINT,
+  last_message_id BIGINT,
+  not_before TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  attempts INTEGER NOT NULL DEFAULT 0,
+  status TEXT NOT NULL DEFAULT 'pending'
+    CHECK (status IN ('pending','sent','cancelled','failed')),
+  last_error_code TEXT,
+  sent_at TIMESTAMPTZ,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_email_outbox_pending
+  ON email_outbox (recipient_type, recipient_id) WHERE status = 'pending';
+CREATE INDEX IF NOT EXISTS idx_email_outbox_due
+  ON email_outbox (status, not_before);
+CREATE INDEX IF NOT EXISTS idx_email_outbox_sent
+  ON email_outbox (sent_at) WHERE status = 'sent';
+
+-- Retensi: worker menghapus baris sent/failed/cancelled lebih dari
+-- EMAIL_RETENTION_DAYS (default 30 hari). Tidak ada isi pesan yang disimpan.
+
+-- =============================================
+-- BAGIAN 19: DATA DEMOGRAFI PASIEN (TANGGAL LAHIR & JENIS KELAMIN)
+-- Umur tidak disimpan; dihitung dari tanggal_lahir agar selalu akurat.
+-- =============================================
+ALTER TABLE patients ADD COLUMN IF NOT EXISTS tanggal_lahir DATE;
+ALTER TABLE patients ADD COLUMN IF NOT EXISTS jenis_kelamin TEXT;
+
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint WHERE conname = 'chk_patients_jenis_kelamin'
+  ) THEN
+    ALTER TABLE patients
+      ADD CONSTRAINT chk_patients_jenis_kelamin
+      CHECK (jenis_kelamin IN ('Laki-laki','Perempuan'));
+  END IF;
+END $$;
+
+-- =============================================
+-- BAGIAN 20: STATUS END CHAT OLEH PASIEN
+-- Sesi yang diakhiri pasien tetap tersimpan sebagai arsip admin.
+-- chat_ended_at NULL berarti sesi masih aktif.
+-- =============================================
+ALTER TABLE patients ADD COLUMN IF NOT EXISTS chat_ended_at TIMESTAMPTZ;
+ALTER TABLE patients ADD COLUMN IF NOT EXISTS chat_ended_by TEXT;
+
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint WHERE conname = 'chk_patients_chat_ended_by'
+  ) THEN
+    ALTER TABLE patients
+      ADD CONSTRAINT chk_patients_chat_ended_by
+      CHECK (chat_ended_by IN ('patient','admin'));
+  END IF;
+END $$;
+
+CREATE INDEX IF NOT EXISTS idx_patients_active
+  ON patients (rumah_sakit, id) WHERE chat_ended_at IS NULL;

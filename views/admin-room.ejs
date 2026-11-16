@@ -49,6 +49,8 @@
     #sendBtn svg { width: 24px; height: 24px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
     #sendBtn:active { transform: scale(0.96); }
     .no-msg { text-align: center; color: var(--subtle); padding: 60px 20px; font-size: 14px; }
+    .chat-ended-note { flex: 1; display: flex; align-items: center; justify-content: center; min-height: 46px; padding: 10px 14px; color: var(--subtle); font-size: 14px; font-weight: 600; text-align: center; }
+    .ended-pill { flex: 0 0 auto; margin-left: 8px; padding: 2px 8px; border-radius: 999px; background: #f1f5f9; color: var(--subtle); font-size: 11px; font-weight: 700; letter-spacing: .02em; }
 
     @media (max-width: 768px) {
       .chat-header { padding: 12px 15px; gap: 8px; }
@@ -77,6 +79,7 @@
     <div style="display:flex; align-items:center;">
       <a href="/admin" class="back-btn" aria-label="Kembali" title="Kembali"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m12 19-7-7 7-7"></path><path d="M19 12H5"></path></svg></a>
       <a href="/admin/patient/<%= user ? user.id : roomId %>" class="patient-name"><%= user ? user.nama : 'Room ' + roomId %></a>
+      <% if (isChatEnded) { %><span class="ended-pill">Diakhiri</span><% } %>
     </div>
   </div>
 
@@ -122,12 +125,16 @@
   </div>
 
   <div class="chat-input">
-    <%- include('partials/chat-tools', { senderName: adminUser, roomId: roomId, placeholder: 'Ketik pesan...', mineClass: 'msg-admin' }) %>
-    <button type="button" id="sendBtn" title="Kirim" aria-label="Kirim"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3.714 3.048a.498.498 0 0 0-.683.627l2.843 7.627a2 2 0 0 1 0 1.396l-2.842 7.627a.498.498 0 0 0 .682.627l18-8.5a.5.5 0 0 0 0-.904z"/><path d="M6 12h16"/></svg></button>
+    <% if (isChatEnded) { %>
+      <div class="chat-ended-note">Chat telah diakhiri oleh pasien</div>
+    <% } else { %>
+      <%- include('partials/chat-tools', { senderName: adminUser, roomId: roomId, placeholder: 'Ketik pesan...', mineClass: 'msg-admin' }) %>
+      <button type="button" id="sendBtn" title="Kirim" aria-label="Kirim"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3.714 3.048a.498.498 0 0 0-.683.627l2.843 7.627a2 2 0 0 1 0 1.396l-2.842 7.627a.498.498 0 0 0 .682.627l18-8.5a.5.5 0 0 0 0-.904z"/><path d="M6 12h16"/></svg></button>
+    <% } %>
   </div>
 
   <div id="chatData" hidden
-       data-ctx="<%= JSON.stringify({ roomId: roomId, myName: adminUser, isAdmin: true, patientId: (user ? user.id : '') }) %>"
+       data-ctx="<%= JSON.stringify({ roomId: roomId, myName: adminUser, isAdmin: true, patientId: (user ? user.id : ''), isChatEnded: isChatEnded }) %>"
        data-render="<%= JSON.stringify(messages) %>"></div>
   <script>
     var chatData = document.getElementById('chatData');
@@ -140,6 +147,14 @@
   <script src="/socket.io/socket.io.js"></script>
   <script>
     const socket = io();
+
+    // Presensi untuk notifikasi email: kirim status tab terlihat.
+    function emitPresence() {
+      socket.emit('presence', { visible: document.visibilityState === 'visible' });
+    }
+    document.addEventListener('visibilitychange', emitPresence);
+    emitPresence();
+
     const ctx = window.__chatCtx || {};
     const roomId = ctx.roomId;
     const adminName = ctx.myName;
@@ -147,6 +162,8 @@
     const chatMessages = document.getElementById('chatMessages');
     const msgInput = document.getElementById('msgInput');
     const sendBtn = document.getElementById('sendBtn');
+    const chatInputBar = document.querySelector('.chat-input');
+    window.__chatEnded = !!ctx.isChatEnded;
 
     // Fix: input chat selalu menyesuaikan tepat di atas keyboard HP (semua browser)
     const headerEl = document.querySelector('.chat-header');
@@ -230,7 +247,19 @@
       });
     };
 
+    function showChatEnded() {
+      window.__chatEnded = true;
+      if (chatInputBar && !chatInputBar.querySelector('.chat-ended-note')) {
+        chatInputBar.innerHTML = '<div class="chat-ended-note">Chat telah diakhiri oleh pasien</div>';
+      }
+      if (msgInput) msgInput.disabled = true;
+      if (sendBtn) sendBtn.disabled = true;
+      updateChatLayout();
+      scrollToBottom();
+    }
+
     function doSend() {
+      if (window.__chatEnded || !msgInput) return;
       const msg = msgInput.value.trim();
       if (!msg) return;
       const replyTo = (window.chatActions && window.chatActions.getReplyTo()) || null;
@@ -246,15 +275,17 @@
       if (window.chatActions) window.chatActions.clearReply();
     }
 
-    sendBtn.addEventListener('click', doSend);
+    if (sendBtn) sendBtn.addEventListener('click', doSend);
 
-    msgInput.addEventListener('keydown', (e) => {
-      // Enter = kirim; Shift+Enter = baris baru
-      if (e.key === 'Enter' && !e.shiftKey) {
-        e.preventDefault();
-        sendBtn.click();
-      }
-    });
+    if (msgInput) {
+      msgInput.addEventListener('keydown', (e) => {
+        // Enter = kirim; Shift+Enter = baris baru
+        if (e.key === 'Enter' && !e.shiftKey) {
+          e.preventDefault();
+          sendBtn.click();
+        }
+      });
+    }
 
     socket.on('messages-deleted', (payload) => {
       if (!payload || payload.room_id !== roomId) return;
@@ -271,6 +302,11 @@
         if (pending) pending.remove();
       }
       appendMessage(data);
+    });
+
+    socket.on('chat-ended', (payload) => {
+      if (!payload || payload.roomId !== roomId) return;
+      showChatEnded();
     });
 
     // ---------- Catch-up setelah reconnect ----------
@@ -303,6 +339,7 @@
       window.chatActions.updateConnBanner('connected', { reconnect: wasDisconnected });
       wasDisconnected = false;
       socket.emit('join-room', { roomId, adminName });
+      emitPresence();
     });
     socket.on('disconnect', () => {
       wasDisconnected = true;

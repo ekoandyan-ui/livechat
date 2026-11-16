@@ -15,6 +15,8 @@ const fs = require("fs");
 const path = require("path");
 const mailer = require("./mailer");
 const push = require("./push");
+const presence = require("./presence");
+const emailWorker = require("./email-worker");
 const totp = require("./totp");
 const QRCode = require("qrcode");
 
@@ -165,6 +167,16 @@ function registerLimitHandler(req, res, next, options) {
       alamat: body.alamat || "",
       nomor_wa: body.nomor_wa || "",
       rumah_sakit: body.rumah_sakit || "",
+      email: body.email || "",
+      tanggal_lahir: body.tanggal_lahir || "",
+      jenis_kelamin:
+        normalizeJenisKelamin(body.jenis_kelamin) || body.jenis_kelamin || "",
+      email_notify:
+        body.email_notify === undefined
+          ? true
+          : Array.isArray(body.email_notify)
+            ? body.email_notify.some((v) => String(v) === "1")
+            : String(body.email_notify) === "1",
     },
   });
 }
@@ -237,6 +249,27 @@ function identityCanAccessRoom(id, roomId) {
   if (id.type === "patient") return roomId === id.roomId;
   if (id.type === "admin") return roomHospital(roomId) === id.rumahSakit;
   return false;
+}
+
+// Ambil ID pasien dari roomId (format "<rumah_sakit>_<id_pasien>").
+function patientIdFromRoomId(roomId) {
+  const lastUnderscore = String(roomId || "").lastIndexOf("_");
+  const userId =
+    lastUnderscore > -1 ? roomId.substring(lastUnderscore + 1) : roomId;
+  return /^\d+$/.test(String(userId || "")) ? Number(userId) : null;
+}
+
+// Status sesi konsultasi. Dipakai route & socket agar pasien tidak lagi
+// membaca/mengirim pesan setelah End Chat, sementara admin tetap dapat
+// membuka arsip. Mengembalikan false bila room/pasien tidak ditemukan.
+async function roomChatEnded(roomId) {
+  const patientId = patientIdFromRoomId(roomId);
+  if (!patientId) return false;
+  const result = await db.query(
+    "SELECT chat_ended_at FROM patients WHERE id = $1",
+    [patientId],
+  );
+  return Boolean(result.rows[0] && result.rows[0].chat_ended_at);
 }
 
 // =============================================
@@ -424,6 +457,99 @@ db.query(
 )
   .then(() => console.log("Tabel push_subscriptions siap."))
   .catch((err) => console.error("Gagal membuat tabel push_subscriptions:", err.message));
+
+// Pastikan kolom email pasien & preferensi notifikasi email tersedia.
+const emailColumnsReady = db
+  .query(
+    `ALTER TABLE patients ADD COLUMN IF NOT EXISTS email TEXT;
+     ALTER TABLE patients ADD COLUMN IF NOT EXISTS email_notify BOOLEAN NOT NULL DEFAULT TRUE;
+     ALTER TABLE admins ADD COLUMN IF NOT EXISTS email_notify BOOLEAN NOT NULL DEFAULT TRUE;
+     CREATE INDEX IF NOT EXISTS idx_patients_email_lower ON patients (LOWER(email)) WHERE email IS NOT NULL;`,
+  )
+  .then(() => console.log("Kolom email & preferensi notifikasi siap."))
+  .catch((err) =>
+    console.error("Gagal menyiapkan kolom email pasien/admin:", err.message),
+  );
+
+// Pastikan tabel email_outbox (notifikasi email pesan baru) tersedia.
+const emailOutboxReady = db
+  .query(
+    `CREATE TABLE IF NOT EXISTS email_outbox (
+       id BIGSERIAL PRIMARY KEY,
+       recipient_type TEXT NOT NULL CHECK (recipient_type IN ('patient','admin')),
+       recipient_id INTEGER NOT NULL,
+       recipient_email TEXT NOT NULL,
+       room_id TEXT,
+       message_count INTEGER NOT NULL DEFAULT 0,
+       first_message_id BIGINT,
+       last_message_id BIGINT,
+       not_before TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+       attempts INTEGER NOT NULL DEFAULT 0,
+       status TEXT NOT NULL DEFAULT 'pending'
+         CHECK (status IN ('pending','sent','cancelled','failed')),
+       last_error_code TEXT,
+       sent_at TIMESTAMPTZ,
+       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+       updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+     );
+     CREATE UNIQUE INDEX IF NOT EXISTS idx_email_outbox_pending
+       ON email_outbox (recipient_type, recipient_id) WHERE status = 'pending';
+     CREATE INDEX IF NOT EXISTS idx_email_outbox_due
+       ON email_outbox (status, not_before);
+     CREATE INDEX IF NOT EXISTS idx_email_outbox_sent
+       ON email_outbox (sent_at) WHERE status = 'sent';`,
+  )
+  .then(() => console.log("Tabel email_outbox siap."))
+  .catch((err) =>
+    console.error("Gagal membuat tabel email_outbox:", err.message),
+  );
+
+// Worker email baru dijalankan setelah skema siap (lihat server.listen).
+const emailSchemaReady = Promise.all([emailColumnsReady, emailOutboxReady]);
+
+// Pastikan kolom demografi pasien (tanggal lahir & jenis kelamin) tersedia.
+// Umur tidak disimpan; dihitung dari tanggal_lahir agar selalu akurat.
+db.query(
+  `ALTER TABLE patients ADD COLUMN IF NOT EXISTS tanggal_lahir DATE;
+   ALTER TABLE patients ADD COLUMN IF NOT EXISTS jenis_kelamin TEXT;
+   DO $$
+   BEGIN
+     IF NOT EXISTS (
+       SELECT 1 FROM pg_constraint WHERE conname = 'chk_patients_jenis_kelamin'
+     ) THEN
+       ALTER TABLE patients
+         ADD CONSTRAINT chk_patients_jenis_kelamin
+         CHECK (jenis_kelamin IN ('Laki-laki','Perempuan'));
+     END IF;
+   END $$;`,
+)
+  .then(() => console.log("Kolom tanggal lahir & jenis kelamin siap."))
+  .catch((err) =>
+    console.error("Gagal menyiapkan kolom demografi pasien:", err.message),
+  );
+
+// Pastikan status End Chat oleh pasien tersedia. Baris pasien tidak dihapus;
+// chat_ended_at NULL berarti sesi masih aktif.
+db.query(
+  `ALTER TABLE patients ADD COLUMN IF NOT EXISTS chat_ended_at TIMESTAMPTZ;
+   ALTER TABLE patients ADD COLUMN IF NOT EXISTS chat_ended_by TEXT;
+   DO $$
+   BEGIN
+     IF NOT EXISTS (
+       SELECT 1 FROM pg_constraint WHERE conname = 'chk_patients_chat_ended_by'
+     ) THEN
+       ALTER TABLE patients
+         ADD CONSTRAINT chk_patients_chat_ended_by
+         CHECK (chat_ended_by IN ('patient','admin'));
+     END IF;
+   END $$;
+   CREATE INDEX IF NOT EXISTS idx_patients_active
+     ON patients (rumah_sakit, id) WHERE chat_ended_at IS NULL;`,
+)
+  .then(() => console.log("Kolom status End Chat siap."))
+  .catch((err) =>
+    console.error("Gagal menyiapkan kolom status End Chat:", err.message),
+  );
 
 // Aktifkan Web Push (VAPID) bila kunci tersedia di environment.
 push.initPush();
@@ -863,7 +989,7 @@ async function loadAdminSession(req) {
   try {
     const r = await db.query(
       `SELECT id, username, email, role, rumah_sakit, is_active, session_version,
-              mfa_enabled, patient_data_read
+              mfa_enabled, patient_data_read, email_notify
          FROM admins WHERE id = $1`,
       [s.adminId],
     );
@@ -1103,7 +1229,7 @@ app.use(async (req, res, next) => {
     if (token && typeof token === "string" && token.length >= 32) {
       try {
         const result = await db.query(
-          "SELECT id, nama, alamat, nomor_wa, rumah_sakit, patient_token FROM patients WHERE patient_token = $1",
+          "SELECT id, nama, alamat, nomor_wa, rumah_sakit, patient_token FROM patients WHERE patient_token = $1 AND chat_ended_at IS NULL",
           [token],
         );
         if (result.rows.length > 0) {
@@ -1139,7 +1265,7 @@ app.get("/", async (req, res) => {
     if (/^\d+$/.test(userId)) {
       try {
         const chk = await db.query(
-          "SELECT id, nama, rumah_sakit FROM patients WHERE id = $1",
+          "SELECT id, nama, rumah_sakit FROM patients WHERE id = $1 AND chat_ended_at IS NULL",
           [userId],
         );
         if (chk.rows.length > 0) {
@@ -1186,6 +1312,93 @@ function waVariants(raw) {
   return [...new Set([original, local, "62" + core, "+62" + core])];
 }
 
+// =============================================
+// HELPER: Data demografi pasien (tanggal lahir & jenis kelamin)
+// =============================================
+
+// Hitung umur dalam tahun dari tanggal lahir. Menerima string "YYYY-MM-DD"
+// (dari form) atau objek Date (hasil kolom DATE dari PostgreSQL).
+// Umur tidak disimpan di database agar selalu akurat mengikuti tanggal hari ini.
+function hitungUmur(tanggalLahir, sekarang = new Date()) {
+  if (!tanggalLahir) return null;
+  let tahun, bulan, hari;
+  if (tanggalLahir instanceof Date) {
+    if (Number.isNaN(tanggalLahir.getTime())) return null;
+    tahun = tanggalLahir.getFullYear();
+    bulan = tanggalLahir.getMonth();
+    hari = tanggalLahir.getDate();
+  } else {
+    const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(String(tanggalLahir).trim());
+    if (!m) return null;
+    tahun = Number(m[1]);
+    bulan = Number(m[2]) - 1;
+    hari = Number(m[3]);
+  }
+  let umur = sekarang.getFullYear() - tahun;
+  if (
+    sekarang.getMonth() < bulan ||
+    (sekarang.getMonth() === bulan && sekarang.getDate() < hari)
+  ) {
+    umur -= 1;
+  }
+  return umur >= 0 ? umur : null;
+}
+
+// Validasi tanggal lahir dari form. Mengembalikan { ok, value, umur, error }.
+function parseTanggalLahir(raw, sekarang = new Date()) {
+  const value = String(raw || "").trim();
+  if (!value) {
+    return { ok: false, error: "Tanggal lahir wajib diisi." };
+  }
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
+  if (!m) {
+    return {
+      ok: false,
+      error:
+        "Format tanggal lahir tidak valid. Gunakan format tanggal yang tersedia.",
+    };
+  }
+  const tahun = Number(m[1]);
+  const bulan = Number(m[2]);
+  const hari = Number(m[3]);
+  const tanggal = new Date(Date.UTC(tahun, bulan - 1, hari));
+  const validKalender =
+    tanggal.getUTCFullYear() === tahun &&
+    tanggal.getUTCMonth() === bulan - 1 &&
+    tanggal.getUTCDate() === hari;
+  if (!validKalender) {
+    return { ok: false, error: "Tanggal lahir tidak valid." };
+  }
+  const hariIni = Date.UTC(
+    sekarang.getFullYear(),
+    sekarang.getMonth(),
+    sekarang.getDate(),
+  );
+  if (tanggal.getTime() > hariIni) {
+    return { ok: false, error: "Tanggal lahir tidak boleh di masa depan." };
+  }
+  const umur = hitungUmur(value, sekarang);
+  if (umur === null) {
+    return { ok: false, error: "Tanggal lahir tidak valid." };
+  }
+  if (umur > 120) {
+    return {
+      ok: false,
+      error: "Tanggal lahir tidak wajar (umur lebih dari 120 tahun).",
+    };
+  }
+  return { ok: true, value, umur };
+}
+
+// Samakan input jenis kelamin ke bentuk baku yang disimpan di database.
+function normalizeJenisKelamin(raw) {
+  const v = String(raw || "").trim().toLowerCase();
+  if (!v) return null;
+  if (["laki-laki", "laki laki", "pria", "l"].includes(v)) return "Laki-laki";
+  if (["perempuan", "wanita", "p"].includes(v)) return "Perempuan";
+  return null;
+}
+
 // Cari pasien lama (agar pendaftaran ulang tidak memakai kuota rate-limit).
 // Urutan pengecekan sama dengan handler lama: token cookie, session roomId,
 // lalu nomor WhatsApp + rumah sakit.
@@ -1196,7 +1409,7 @@ async function findExistingPatient(req) {
   const tokenFromCookie = getCookie(req, "dinkes_patient_token");
   if (tokenFromCookie && tokenFromCookie.length >= 32) {
     const chkToken = await db.query(
-      "SELECT id, nama, alamat, nomor_wa, rumah_sakit, patient_token FROM patients WHERE patient_token = $1",
+      "SELECT id, nama, alamat, nomor_wa, rumah_sakit, patient_token, email, email_notify FROM patients WHERE patient_token = $1 AND chat_ended_at IS NULL",
       [tokenFromCookie],
     );
     if (chkToken.rows.length > 0) return chkToken.rows[0];
@@ -1211,7 +1424,7 @@ async function findExistingPatient(req) {
         : req.session.patientRoomId;
     if (/^\d+$/.test(userId)) {
       const chkSess = await db.query(
-        "SELECT id, nama, alamat, nomor_wa, rumah_sakit, patient_token FROM patients WHERE id = $1",
+        "SELECT id, nama, alamat, nomor_wa, rumah_sakit, patient_token, email, email_notify FROM patients WHERE id = $1 AND chat_ended_at IS NULL",
         [userId],
       );
       if (chkSess.rows.length > 0) return chkSess.rows[0];
@@ -1223,7 +1436,7 @@ async function findExistingPatient(req) {
     const variants = waVariants(nomor_wa);
     if (variants.length > 0) {
       const chkWa = await db.query(
-        "SELECT id, nama, alamat, nomor_wa, rumah_sakit, patient_token FROM patients WHERE nomor_wa = ANY($1::text[]) AND rumah_sakit = $2 ORDER BY id DESC LIMIT 1",
+        "SELECT id, nama, alamat, nomor_wa, rumah_sakit, patient_token, email, email_notify FROM patients WHERE nomor_wa = ANY($1::text[]) AND rumah_sakit = $2 AND chat_ended_at IS NULL ORDER BY id DESC LIMIT 1",
         [variants, rumah_sakit],
       );
       if (chkWa.rows.length > 0) return chkWa.rows[0];
@@ -1248,14 +1461,81 @@ async function resolveExistingPatient(req, res, next) {
 app.post("/tambah", resolveExistingPatient, registerLimiter, async (req, res) => {
   try {
     const { nama, alamat, nomor_wa, rumah_sakit } = req.body;
+    const emailRaw = req.body.email;
+    const notifyRaw = req.body.email_notify;
+    const tanggalLahirRaw = req.body.tanggal_lahir;
+    const jenisKelaminRaw = req.body.jenis_kelamin;
     if (!rumah_sakit || !RUMAH_SAKIT_LIST.includes(rumah_sakit)) {
       return res.status(400).send("Rumah sakit tidak valid.");
+    }
+
+    // Form memakai hidden input "0" + checkbox "1". Bila field tidak dikirim
+    // sama sekali (client lama), pertahankan default aktif.
+    const emailNotify =
+      notifyRaw === undefined
+        ? true
+        : Array.isArray(notifyRaw)
+          ? notifyRaw.some((v) => String(v) === "1")
+          : String(notifyRaw) === "1";
+
+    const formValues = {
+      nama: nama || "",
+      alamat: alamat || "",
+      nomor_wa: nomor_wa || "",
+      rumah_sakit: rumah_sakit || "",
+      email: emailRaw || "",
+      email_notify: emailNotify,
+      tanggal_lahir: tanggalLahirRaw || "",
+      jenis_kelamin:
+        normalizeJenisKelamin(jenisKelaminRaw) || jenisKelaminRaw || "",
+    };
+    const renderFormError = (message) =>
+      res.status(400).render("index", {
+        title: "TAMBAH PASIEN BARU",
+        rumahSakitList: RUMAH_SAKIT_LIST,
+        activePatient: null,
+        csrfToken: req.session && req.session.csrfToken,
+        formError: message,
+        formValues,
+      });
+
+    // Tanggal lahir (untuk menghitung umur) & jenis kelamin wajib diisi.
+    const tanggalLahir = parseTanggalLahir(tanggalLahirRaw);
+    const jenisKelamin = normalizeJenisKelamin(jenisKelaminRaw);
+    if (!tanggalLahir.ok || !jenisKelamin) {
+      const errors = [];
+      if (!tanggalLahir.ok) errors.push(tanggalLahir.error);
+      if (!jenisKelamin) {
+        errors.push("Jenis kelamin wajib dipilih (Laki-laki atau Perempuan).");
+      }
+      return renderFormError(errors.join(" "));
+    }
+
+    // Email opsional: kosong diperbolehkan. Bila diisi, harus valid.
+    const email = mailer.normalizeEmail(emailRaw);
+    const emailProvided = String(emailRaw || "").trim() !== "";
+    if (emailProvided && !email) {
+      return renderFormError(
+        "Format email tidak valid. Periksa kembali alamat email Anda.",
+      );
     }
 
     const existingPatient = req.existingPatient || null;
 
     // Jika pasien sudah ada dan belum dihapus admin: gunakan ID yang sama dan tetap!
     if (existingPatient) {
+      // Perbarui email hanya bila diisi; jangan hapus email lama bila kosong.
+      // Data demografi (tanggal lahir & jenis kelamin) ikut diperbarui.
+      await db.query(
+        "UPDATE patients SET email = COALESCE($1, email), email_notify = $2, tanggal_lahir = $3, jenis_kelamin = $4 WHERE id = $5",
+        [
+          email,
+          emailNotify,
+          tanggalLahir.value,
+          jenisKelamin,
+          existingPatient.id,
+        ],
+      );
       const roomId = `${existingPatient.rumah_sakit}_${existingPatient.id}`;
       let token = existingPatient.patient_token;
       if (!token) {
@@ -1276,8 +1556,18 @@ app.post("/tambah", resolveExistingPatient, registerLimiter, async (req, res) =>
     // Pasien baru (belum pernah ada atau data lama telah dihapus total oleh admin)
     const newToken = crypto.randomBytes(32).toString("hex");
     const result = await db.query(
-      "INSERT INTO patients (nama, alamat, nomor_wa, rumah_sakit, patient_token) VALUES ($1, $2, $3, $4, $5) RETURNING id",
-      [nama, alamat, nomor_wa, rumah_sakit, newToken],
+      "INSERT INTO patients (nama, alamat, nomor_wa, rumah_sakit, patient_token, email, email_notify, tanggal_lahir, jenis_kelamin) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING id",
+      [
+        nama,
+        alamat,
+        nomor_wa,
+        rumah_sakit,
+        newToken,
+        email,
+        emailNotify,
+        tanggalLahir.value,
+        jenisKelamin,
+      ],
     );
     const newUserId = result.rows[0].id;
     const roomId = `${rumah_sakit}_${newUserId}`;
@@ -1329,6 +1619,19 @@ app.get("/chat/:roomId", async (req, res) => {
 
     // Jika pasien sudah dihapus admin (total chat dihapus), otomatis kembali ke form awal
     if (!user) {
+      clearPatientCookie(res);
+      if (req.session) {
+        delete req.session.patientRoomId;
+        delete req.session.patientName;
+        delete req.session.patientRumahSakit;
+        delete req.session.patientToken;
+      }
+      return res.redirect("/");
+    }
+
+    // Sesi yang sudah diakhiri pasien tidak boleh dibuka lagi, termasuk lewat
+    // tautan lama atau cookie yang masih tersimpan di perangkat lain.
+    if (user.chat_ended_at) {
       clearPatientCookie(res);
       if (req.session) {
         delete req.session.patientRoomId;
@@ -2647,6 +2950,8 @@ async function fetchAdminRooms(rumahSakit) {
       rumah_sakit: user.rumah_sakit,
       roomId: room_id,
       isPinned: !!user.is_pinned,
+      isEnded: Boolean(user.chat_ended_at),
+      chatEndedAt: user.chat_ended_at || null,
       totalPesan: parseInt(msgCount.rows[0].total),
       lastMessage,
       // Waktu aktivitas terakhir: pesan terbaru, atau waktu pendaftaran pasien.
@@ -2686,6 +2991,7 @@ app.get("/admin", requireAdmin, async (req, res) => {
       rooms,
       adminUser: req.session.adminUser,
       adminRumahSakit: rumahSakit,
+      adminEmailNotify: req.admin.email_notify !== false,
     });
   } catch (err) {
     console.error("Error admin dashboard:", err.message);
@@ -2726,6 +3032,7 @@ app.get("/admin/room/:patientId", requireAdmin, async (req, res) => {
       roomId,
       user,
       messages,
+      isChatEnded: Boolean(user.chat_ended_at),
       adminUser: req.session.adminUser,
       adminRumahSakit: rumahSakit,
     });
@@ -2742,9 +3049,10 @@ app.get("/admin/patient/:patientId", requireAdmin, async (req, res) => {
   const patientId = parseInt(req.params.patientId, 10);
   const rumahSakit = req.session.adminRumahSakit;
   try {
-    const userResult = await db.query("SELECT * FROM patients WHERE id = $1", [
-      patientId,
-    ]);
+    const userResult = await db.query(
+      "SELECT *, to_char(tanggal_lahir, 'YYYY-MM-DD') AS tanggal_lahir_iso FROM patients WHERE id = $1",
+      [patientId],
+    );
     const user = userResult.rows[0];
 
     if (!user) {
@@ -2759,6 +3067,7 @@ app.get("/admin/patient/:patientId", requireAdmin, async (req, res) => {
 
     res.render("admin-patient", {
       user,
+      umur: hitungUmur(user.tanggal_lahir_iso),
       adminUser: req.session.adminUser,
       adminRumahSakit: rumahSakit,
     });
@@ -2844,6 +3153,12 @@ app.get("/api/messages/:roomId", async (req, res) => {
   const viewer = id.name;
   const after = req.query.after ? parseInt(req.query.after, 10) : null;
   try {
+    if (id.type === "patient" && (await roomChatEnded(roomId))) {
+      return res.status(410).json({
+        error: "Sesi konsultasi telah diakhiri.",
+        code: "CHAT_ENDED",
+      });
+    }
     let query = `SELECT ${MSG_COLS} FROM messages
                  WHERE room_id = $1
                    AND NOT EXISTS (
@@ -2867,6 +3182,96 @@ app.get("/api/messages/:roomId", async (req, res) => {
 });
 
 // =============================================
+// API: End Chat oleh pasien
+// Status sesi diubah, data TIDAK dihapus. Admin tetap dapat membuka arsip.
+// =============================================
+app.post("/api/chat/end", async (req, res) => {
+  const id = sessionIdentity(req);
+  if (!id || id.type !== "patient" || !id.roomId) {
+    return res.status(403).json({ error: "Akses ditolak." });
+  }
+  const patientId = patientIdFromRoomId(id.roomId);
+  if (!patientId) {
+    return res.status(400).json({ error: "Room tidak valid." });
+  }
+
+  let endedAt = null;
+  let alreadyEnded = false;
+  let rumahSakit = id.rumahSakit || roomHospital(id.roomId);
+  const client = await db.connect();
+  try {
+    await client.query("BEGIN");
+    const patientRes = await client.query(
+      "SELECT id, rumah_sakit, chat_ended_at FROM patients WHERE id = $1 FOR UPDATE",
+      [patientId],
+    );
+    const patient = patientRes.rows[0];
+    if (!patient || `${patient.rumah_sakit}_${patient.id}` !== id.roomId) {
+      await client.query("ROLLBACK");
+      return res.status(403).json({ error: "Akses ditolak." });
+    }
+
+    rumahSakit = patient.rumah_sakit;
+    alreadyEnded = Boolean(patient.chat_ended_at);
+    endedAt = patient.chat_ended_at;
+
+    if (!alreadyEnded) {
+      const updated = await client.query(
+        `UPDATE patients
+            SET chat_ended_at = NOW(), chat_ended_by = 'patient'
+          WHERE id = $1 AND chat_ended_at IS NULL
+          RETURNING chat_ended_at`,
+        [patientId],
+      );
+      endedAt = updated.rows[0] ? updated.rows[0].chat_ended_at : new Date();
+    }
+
+    // Hentikan notifikasi email yang belum terkirim untuk sesi ini.
+    await client.query(
+      `UPDATE email_outbox
+          SET status = 'cancelled', last_error_code = 'chat_ended', updated_at = NOW()
+        WHERE status = 'pending'
+          AND (room_id = $1 OR (recipient_type = 'patient' AND recipient_id = $2))`,
+      [id.roomId, patientId],
+    );
+
+    await client.query("COMMIT");
+  } catch (err) {
+    await client.query("ROLLBACK").catch(() => {});
+    console.error("Error end chat:", err.message);
+    return res.status(500).json({ error: "Terjadi kesalahan server." });
+  } finally {
+    client.release();
+  }
+
+  if (!alreadyEnded) {
+    const payload = {
+      roomId: id.roomId,
+      patientId,
+      endedAt,
+      endedBy: "patient",
+    };
+    io.to(id.roomId).emit("chat-ended", payload);
+    io.to(ADMIN_CHAN(rumahSakit)).emit("chat-ended", payload);
+  }
+
+  clearPatientCookie(res);
+  req.session.regenerate((err) => {
+    if (err) {
+      console.error("Error regenerate sesi setelah end chat:", err.message);
+    } else {
+      req.session.csrfToken = crypto.randomBytes(16).toString("hex");
+    }
+    res.json({
+      ok: true,
+      redirect: "/",
+      endedAt,
+      alreadyEnded,
+    });
+  });
+});
+
+// =============================================
 // API: Cek apakah pasien (room) masih ada (untuk resume chat)
 // =============================================
 app.get("/api/patient-exists/:roomId", async (req, res) => {
@@ -2878,7 +3283,7 @@ app.get("/api/patient-exists/:roomId", async (req, res) => {
     if (!/^\d+$/.test(userId)) return res.json({ exists: false });
 
     const result = await db.query(
-      "SELECT id, nama, rumah_sakit, patient_token FROM patients WHERE id = $1",
+      "SELECT id, nama, rumah_sakit, patient_token, chat_ended_at FROM patients WHERE id = $1",
       [userId],
     );
     if (result.rows.length === 0) {
@@ -2912,6 +3317,27 @@ app.get("/api/patient-exists/:roomId", async (req, res) => {
 
     if (!isOwnerByToken && !isOwnerBySession && !isAdmin) {
       return res.json({ exists: false });
+    }
+
+    // Sesi yang sudah diakhiri: pasien dianggap tidak punya room aktif,
+    // sedangkan admin tetap dapat membuka arsip.
+    if (patient.chat_ended_at) {
+      if (isAdmin) {
+        return res.json({
+          exists: true,
+          ended: true,
+          userName: patient.nama,
+          roomId,
+        });
+      }
+      clearPatientCookie(res);
+      if (req.session) {
+        delete req.session.patientRoomId;
+        delete req.session.patientName;
+        delete req.session.patientRumahSakit;
+        delete req.session.patientToken;
+      }
+      return res.json({ exists: false, ended: true });
     }
 
     // Pulihkan sesi jika token cocok tapi sesi belum tersimpan di session server
@@ -2967,11 +3393,17 @@ app.post("/api/upload", uploadLimiter, async (req, res) => {
     if (!/^\d+$/.test(userId))
       return res.status(400).json({ error: "Room tidak valid." });
     const patientCheck = await db.query(
-      "SELECT id FROM patients WHERE id = $1",
+      "SELECT id, chat_ended_at FROM patients WHERE id = $1",
       [userId],
     );
     if (patientCheck.rows.length === 0) {
       return res.status(404).json({ error: "Pasien tidak ditemukan." });
+    }
+    if (patientCheck.rows[0].chat_ended_at) {
+      return res.status(410).json({
+        error: "Sesi konsultasi telah diakhiri.",
+        code: "CHAT_ENDED",
+      });
     }
 
     const base64 = data.split(",")[1];
@@ -3035,9 +3467,22 @@ app.post("/api/upload", uploadLimiter, async (req, res) => {
 
     io.to(roomId).emit("room-message", payload);
 
-    bumpUnread(roomId).catch((e) =>
+    const unreadReady = bumpUnread(roomId).catch((e) =>
       console.error("Error bumpUnread:", e.message),
     );
+
+    // Notifikasi email hanya untuk penerima yang sedang offline. Dijalankan
+    // setelah unread tersimpan agar cek "sudah dibaca" di worker akurat.
+    unreadReady
+      .then(() =>
+        emailWorker.queueEmailForMessage({
+          db,
+          sender: id,
+          roomId,
+          messageId: m.id,
+        }),
+      )
+      .catch((e) => console.error("Error queueEmailForMessage:", e.message));
 
     io.to(ADMIN_CHAN(roomHospital(roomId))).emit("room-activity", {
       roomId,
@@ -3075,6 +3520,12 @@ app.post("/api/message/delete", async (req, res) => {
     return res.status(400).json({ error: "Mode tidak valid." });
   }
   try {
+    if (id.type === "patient" && (await roomChatEnded(roomId))) {
+      return res.status(410).json({
+        error: "Sesi konsultasi telah diakhiri.",
+        code: "CHAT_ENDED",
+      });
+    }
     if (mode === "all") {
       // Hanya pesan sendiri yang berusia < 2 menit boleh dihapus untuk semua orang
       const ageRes = await db.query(
@@ -3278,6 +3729,25 @@ app.delete("/api/push/subscribe", pushLimiter, async (req, res) => {
 });
 
 // =============================================
+// API: Preferensi notifikasi email admin (opt-out)
+// =============================================
+app.post("/api/notify-email", requireAdmin, async (req, res) => {
+  const raw = req.body && req.body.enabled;
+  const enabled =
+    raw === true || raw === 1 || raw === "1" || raw === "true";
+  try {
+    await db.query("UPDATE admins SET email_notify = $1 WHERE id = $2", [
+      enabled,
+      req.session.adminId,
+    ]);
+    res.json({ ok: true, enabled });
+  } catch (err) {
+    console.error("Error POST /api/notify-email:", err.message);
+    res.status(500).json({ error: "Terjadi kesalahan server." });
+  }
+});
+
+// =============================================
 // NOTIFIKASI BELUM DIBACA (unread) per admin & room
 // =============================================
 const onlineAdmins = {}; // { roomId: Set of admin usernames yang sedang membuka (membaca) room }
@@ -3404,7 +3874,12 @@ function socketIdentity(socket) {
   const s = socket.request && socket.request.session;
   if (!s) return null;
   if (s.isAdmin && s.adminUser) {
-    return { type: "admin", name: s.adminUser, rumahSakit: s.adminRumahSakit };
+    return {
+      type: "admin",
+      name: s.adminUser,
+      adminId: s.adminId || null,
+      rumahSakit: s.adminRumahSakit,
+    };
   }
   if (s.patientRoomId) {
     return {
@@ -3419,6 +3894,10 @@ function socketIdentity(socket) {
 
 io.on("connection", (socket) => {
   console.log("Socket connected:", socket.id);
+
+  // Catat presensi socket (dipakai worker email untuk cek online/offline).
+  const connIdentity = socketIdentity(socket);
+  if (connIdentity) presence.track(socket, connIdentity);
 
   // Throttle pengiriman pesan per-socket (anti-spam realtime).
   // Maks 10 pesan / detik (burst) dan maks 60 pesan / 10 detik (berkelanjutan).
@@ -3437,7 +3916,7 @@ io.on("connection", (socket) => {
   // Join ke room tertentu (roomId sekarang termasuk prefix rumah_sakit)
   // Dari tampilan admin, payload berupa { roomId, adminName } untuk
   // menandai admin tersebut sedang membaca room (reset unread).
-  socket.on("join-room", (payload) => {
+  socket.on("join-room", async (payload) => {
     const id = socketIdentity(socket);
     if (!id) return;
 
@@ -3447,6 +3926,18 @@ io.on("connection", (socket) => {
 
     if (id.type === "patient") {
       if (roomId !== id.roomId) return;
+      try {
+        if (await roomChatEnded(roomId)) {
+          socket.emit("chat-ended", {
+            roomId,
+            endedBy: "patient",
+          });
+          return;
+        }
+      } catch (err) {
+        console.error("Error cek status end chat (join-room):", err.message);
+        return;
+      }
     } else {
       if (roomHospital(roomId) !== id.rumahSakit) return;
     }
@@ -3483,6 +3974,16 @@ io.on("connection", (socket) => {
     const id = socketIdentity(socket);
     if (!id || id.type !== "admin") return;
     socket.join(ADMIN_CHAN(id.rumahSakit));
+  });
+
+  // Presensi: apakah tab aplikasi sedang terlihat. Client mengirim saat
+  // connect dan setiap kali document.visibilityState berubah.
+  socket.on("presence", (payload) => {
+    const visible =
+      payload && typeof payload === "object"
+        ? payload.visible !== false
+        : payload !== false;
+    presence.setVisible(socket, visible);
   });
 
   // Kirim pesan.
@@ -3524,21 +4025,26 @@ io.on("connection", (socket) => {
     }
 
     try {
-      if (id.type === "patient") {
-        // Pastikan pasien masih ada (tidak dihapus admin)
-        const lastUnderscore = roomId.lastIndexOf("_");
-        const userId =
-          lastUnderscore > -1 ? roomId.substring(lastUnderscore + 1) : roomId;
-        if (!/^\d+$/.test(userId)) {
-          return respond({ ok: false, code: "VALIDATION_ERROR", error: "Room tidak valid." });
-        }
-        const patientChk = await db.query(
-          "SELECT id FROM patients WHERE id = $1",
-          [userId],
-        );
-        if (!patientChk.rows.length) {
-          return respond({ ok: false, code: "NOT_AUTHORIZED", error: "Percakapan tidak ditemukan." });
-        }
+      // Pastikan pasien (room) masih ada dan sesinya belum diakhiri.
+      const lastUnderscore = roomId.lastIndexOf("_");
+      const userId =
+        lastUnderscore > -1 ? roomId.substring(lastUnderscore + 1) : roomId;
+      if (!/^\d+$/.test(userId)) {
+        return respond({ ok: false, code: "VALIDATION_ERROR", error: "Room tidak valid." });
+      }
+      const patientChk = await db.query(
+        "SELECT id, chat_ended_at FROM patients WHERE id = $1",
+        [userId],
+      );
+      if (!patientChk.rows.length) {
+        return respond({ ok: false, code: "NOT_AUTHORIZED", error: "Percakapan tidak ditemukan." });
+      }
+      if (patientChk.rows[0].chat_ended_at) {
+        return respond({
+          ok: false,
+          code: "CHAT_ENDED",
+          error: "Sesi konsultasi telah diakhiri.",
+        });
       }
 
       let replyTo = null;
@@ -3600,7 +4106,7 @@ io.on("connection", (socket) => {
       io.to(roomId).emit("room-message", payload);
 
       // Efek samping best-effort; kegagalan tidak membatalkan ACK sukses.
-      bumpUnread(roomId).catch((e) =>
+      const unreadReady = bumpUnread(roomId).catch((e) =>
         console.error("Error bumpUnread:", e.message),
       );
 
@@ -3616,6 +4122,21 @@ io.on("connection", (socket) => {
         console.error("Error sendPushForMessage:", e.message),
       );
 
+      // Notifikasi email hanya untuk penerima yang sedang offline. Dijalankan
+      // setelah unread tersimpan agar cek "sudah dibaca" di worker akurat.
+      unreadReady
+        .then(() =>
+          emailWorker.queueEmailForMessage({
+            db,
+            sender: id,
+            roomId,
+            messageId: savedRow.id,
+          }),
+        )
+        .catch((e) =>
+          console.error("Error queueEmailForMessage:", e.message),
+        );
+
       respond({ ok: true, message: payload });
     } catch (err) {
       console.error("Gagal simpan pesan:", err.message);
@@ -3625,6 +4146,7 @@ io.on("connection", (socket) => {
 
   // Disconnect
   socket.on("disconnect", () => {
+    presence.untrack(socket);
     const roomId = socket.roomId;
     if (roomId && socket.adminName && onlineAdmins[roomId]) {
       onlineAdmins[roomId].delete(socket.adminName);
@@ -3645,4 +4167,5 @@ io.on("connection", (socket) => {
 const PORT = process.env.PORT || 8000;
 server.listen(PORT, () => {
   console.log(`Server berjalan di port ${PORT}`);
+  emailSchemaReady.then(() => emailWorker.startEmailWorker({ db }));
 });
