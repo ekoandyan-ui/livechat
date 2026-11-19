@@ -170,6 +170,14 @@
   <script src="/socket.io/socket.io.js"></script>
   <script>
     const socket = io();
+
+    // Presensi untuk notifikasi email: kirim status tab terlihat.
+    function emitPresence() {
+      socket.emit('presence', { visible: document.visibilityState === 'visible' });
+    }
+    document.addEventListener('visibilitychange', emitPresence);
+    emitPresence();
+
     const ctx = window.__chatCtx || {};
     const roomId = ctx.roomId;
     const myName = ctx.myName;
@@ -250,6 +258,13 @@
     }
 
     socket.on('chat-deleted', handleChatDeleted);
+
+    // Sesi diakhiri dari tab/perangkat lain: bersihkan tampilan lalu kembali
+    // ke form pendaftaran. Riwayat tetap tersimpan sebagai arsip admin.
+    socket.on('chat-ended', function (payload) {
+      if (payload && payload.roomId && payload.roomId !== roomId) return;
+      handleChatDeleted();
+    });
 
     // Pengecekan berkala: jika pasien dihapus saat socket tidak tersambung
     setInterval(async () => {
@@ -396,6 +411,7 @@
       window.chatActions.updateConnBanner('connected', { reconnect: wasDisconnected });
       wasDisconnected = false;
       socket.emit('join-room', roomId);
+      emitPresence();
     });
     socket.on('disconnect', () => {
       wasDisconnected = true;

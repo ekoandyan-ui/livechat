@@ -60,6 +60,12 @@
 </head>
 <body>
   <% const fv = (typeof formValues !== 'undefined' && formValues) ? formValues : {}; %>
+  <%
+    const nowLocal = new Date();
+    const todayIso = nowLocal.getFullYear() + '-' +
+      String(nowLocal.getMonth() + 1).padStart(2, '0') + '-' +
+      String(nowLocal.getDate()).padStart(2, '0');
+  %>
   <div class="overlay" id="resumeOverlay">
     <div class="overlay-card">
       <h3>Sesi Percakapan Aktif</h3>
@@ -83,12 +89,30 @@
         <input type="text" name="nama" class="form-control" placeholder="Masukkan nama lengkap" value="<%= fv.nama || '' %>" required />
       </div>
       <div class="mb-3">
+        <label class="form-label">Tanggal Lahir</label>
+        <input type="date" name="tanggal_lahir" id="tanggalLahir" class="form-control" max="<%= todayIso %>" value="<%= fv.tanggal_lahir || '' %>" required />
+        <div style="font-size:12px;color:#64748b;margin-top:4px">Umur: <b id="umurPreview">-</b></div>
+      </div>
+      <div class="mb-3">
+        <label class="form-label">Jenis Kelamin</label>
+        <select name="jenis_kelamin" class="form-select" required>
+          <option value="" disabled <%= fv.jenis_kelamin ? '' : 'selected' %>>Pilih jenis kelamin</option>
+          <option value="Laki-laki" <%= fv.jenis_kelamin === 'Laki-laki' ? 'selected' : '' %>>Laki-laki</option>
+          <option value="Perempuan" <%= fv.jenis_kelamin === 'Perempuan' ? 'selected' : '' %>>Perempuan</option>
+        </select>
+      </div>
+      <div class="mb-3">
         <label class="form-label">Alamat</label>
         <textarea name="alamat" class="form-control" rows="2" placeholder="Masukkan alamat lengkap" required><%= fv.alamat || '' %></textarea>
       </div>
       <div class="mb-3">
         <label class="form-label">Nomor WhatsApp</label>
         <input type="tel" name="nomor_wa" class="form-control" placeholder="Contoh: 081234567890" pattern="[0-9+\-() ]*" inputmode="numeric" value="<%= fv.nomor_wa || '' %>" required />
+      </div>
+      <div class="mb-3">
+        <label class="form-label">Email</label>
+        <input type="email" name="email" class="form-control" placeholder="nama@email.com" autocomplete="email" maxlength="254" value="<%= fv.email || '' %>" />
+        <div style="font-size:12px;color:#64748b;margin-top:4px">Pastikan email Anda aktif untuk menerima notifikasi pesan baru saat aplikasi tidak dibuka.</div>
       </div>
       <div class="mb-4">
         <label class="form-label">Rumah Sakit Tujuan</label>
@@ -181,6 +205,37 @@
           if (btn) { btn.disabled = false; btn.textContent = label; }
         }
       });
+    })();
+  </script>
+  <script>
+    (function () {
+      const input = document.getElementById('tanggalLahir');
+      const preview = document.getElementById('umurPreview');
+      if (!input || !preview) return;
+
+      // Hitung umur (tahun) dari tanggal lahir, sama seperti validasi di server.
+      function hitungUmur(value) {
+        const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value || '');
+        if (!m) return null;
+        const tahun = Number(m[1]);
+        const bulan = Number(m[2]) - 1;
+        const hari = Number(m[3]);
+        const lahir = new Date(tahun, bulan, hari);
+        if (lahir.getFullYear() !== tahun || lahir.getMonth() !== bulan || lahir.getDate() !== hari) return null;
+        const now = new Date();
+        let umur = now.getFullYear() - tahun;
+        if (now.getMonth() < bulan || (now.getMonth() === bulan && now.getDate() < hari)) umur -= 1;
+        return umur >= 0 ? umur : null;
+      }
+
+      function render() {
+        const umur = hitungUmur(input.value);
+        preview.textContent = umur === null ? '-' : umur + ' tahun';
+      }
+
+      input.addEventListener('input', render);
+      input.addEventListener('change', render);
+      render();
     })();
   </script>
 </body>

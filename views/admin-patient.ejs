@@ -68,12 +68,36 @@
         <div class="data-value"><%= user.nama %></div>
       </div>
       <div class="data-row">
+        <div class="data-label">Tanggal Lahir</div>
+        <div class="data-value"><%= user.tanggal_lahir_iso ? user.tanggal_lahir_iso.split('-').reverse().join('-') : '-' %></div>
+      </div>
+      <div class="data-row">
+        <div class="data-label">Umur</div>
+        <div class="data-value"><%= (typeof umur === 'number' && umur >= 0) ? umur + ' tahun' : '-' %></div>
+      </div>
+      <div class="data-row">
+        <div class="data-label">Jenis Kelamin</div>
+        <div class="data-value"><%= user.jenis_kelamin || '-' %></div>
+      </div>
+      <div class="data-row">
         <div class="data-label">Alamat</div>
         <div class="data-value"><%= user.alamat %></div>
       </div>
       <div class="data-row">
         <div class="data-label">Nomor WhatsApp</div>
         <div class="data-value"><a href="tel:<%= user.nomor_wa %>"><%= user.nomor_wa %></a></div>
+      </div>
+      <div class="data-row">
+        <div class="data-label">Email</div>
+        <div class="data-value"><% if (user.email) { %><a href="mailto:<%= user.email %>"><%= user.email %></a><% } else { %>-<% } %></div>
+      </div>
+      <div class="data-row">
+        <div class="data-label">Notifikasi Email</div>
+        <div class="data-value"><%= user.email_notify ? 'Aktif' : 'Nonaktif' %></div>
+      </div>
+      <div class="data-row">
+        <div class="data-label">Status Chat</div>
+        <div class="data-value"><%= user.chat_ended_at ? 'Diakhiri pasien pada ' + new Date(user.chat_ended_at).toLocaleString('id-ID', { day:'2-digit', month:'2-digit', year:'numeric', hour:'2-digit', minute:'2-digit' }) : 'Aktif' %></div>
       </div>
       <div class="data-row">
         <div class="data-label">Rumah Sakit</div>

@@ -7,9 +7,27 @@
 // - Tautan memakai APP_BASE_URL (origin HTTPS tetap), bukan host dari request.
 // - Konten email tidak pernah memuat password/token lama yang masih berlaku.
 // =============================================
+const crypto = require("crypto");
 const nodemailer = require("nodemailer");
 
 const IS_PRODUCTION = process.env.NODE_ENV === "production";
+
+// Alamat email tidak pernah dicatat mentah di log. Hash pendek cukup untuk
+// korelasi tanpa membocorkan PII.
+function maskEmail(value) {
+  const raw = String(value || "").trim().toLowerCase();
+  if (!raw) return "-";
+  const hash = crypto.createHash("sha256").update(raw).digest("hex").slice(0, 12);
+  return `recipient#${hash}`;
+}
+
+// Validasi sederhana + normalisasi (trim, lowercase, maks 254 karakter).
+function normalizeEmail(value) {
+  const email = String(value || "").trim().toLowerCase();
+  if (!email || email.length > 254) return null;
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return null;
+  return email;
+}
 
 function getBaseUrl() {
   const configured = (process.env.APP_BASE_URL || "").trim().replace(/\/+$/, "");
@@ -39,15 +57,16 @@ function mailerConfigured() {
   return !!transporter;
 }
 
-async function sendMail({ to, subject, text, html }) {
+async function sendMail({ to, subject, text, html, attempts = 3 }) {
+  const maxAttempts = Math.max(1, Number(attempts) || 1);
   if (!transporter) {
     console.warn(
-      `[MAILER] SMTP belum dikonfigurasi -> email ke ${to} TIDAK terkirim (subject: "${subject}").`,
+      `[MAILER] SMTP belum dikonfigurasi -> email ke ${maskEmail(to)} TIDAK terkirim (subject: "${subject}").`,
     );
     return { skipped: true };
   }
   let lastErr;
-  for (let attempt = 1; attempt <= 3; attempt++) {
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
     try {
       await transporter.sendMail({
         from: getFromAddress(),
@@ -59,8 +78,13 @@ async function sendMail({ to, subject, text, html }) {
       return { skipped: false };
     } catch (err) {
       lastErr = err;
-      console.error(`[MAILER] gagal kirim (percobaan ${attempt}/3):`, err.message);
-      if (attempt < 3) await new Promise((r) => setTimeout(r, 500 * attempt));
+      console.error(
+        `[MAILER] gagal kirim ke ${maskEmail(to)} (percobaan ${attempt}/${maxAttempts}):`,
+        err.message,
+      );
+      if (attempt < maxAttempts) {
+        await new Promise((r) => setTimeout(r, 500 * attempt));
+      }
     }
   }
   return { skipped: false, error: lastErr ? lastErr.message : "unknown" };
@@ -146,12 +170,31 @@ async function sendNewPasswordEmail(to, password) {
   return sendMail({ to, subject, text, html });
 }
 
+// Notifikasi pesan baru untuk pasien/admin yang sedang tidak membuka aplikasi.
+// Isi sengaja generik: tanpa nama pasien, isi pesan, rumah sakit, atau lampiran.
+async function sendNewMessageEmail(to, { count = 1, url, attempts } = {}) {
+  const link = String(url || getBaseUrl()).trim();
+  const n = Math.max(1, Number(count) || 1);
+  const subject = "Pesan Baru Konsultasi Tangklet Dokter";
+  const text = `Ada ${n} pesan baru Konsultasi di Tangklet Dokter: ${link}`;
+  const html = wrap(
+    "Pesan Baru Konsultasi",
+    `<p>Ada <b>${n}</b> pesan baru Konsultasi di Tangklet Dokter:</p>
+     <p><a href="${link}" style="background:#0ea5e9;color:#fff;padding:10px 16px;border-radius:8px;text-decoration:none">Buka Konsultasi</a></p>
+     <p style="font-size:13px;color:#64748b">Atau salin: ${link}</p>`,
+  );
+  return sendMail({ to, subject, text, html, attempts });
+}
+
 module.exports = {
   getBaseUrl,
+  maskEmail,
+  normalizeEmail,
   mailerConfigured,
   sendMail,
   sendActivationEmail,
   sendResetEmail,
   sendPasswordChangedEmail,
   sendNewPasswordEmail,
+  sendNewMessageEmail,
 };
